@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --python ${{ matrix.python-version }} --extra dev
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Tests (fully offline)
+        run: uv run pytest
+        env:
+          INTENTRADAR_LLM_MOCK: "1"
+
+      # Baseline reproducibility: anyone, anywhere, no network.
+      - name: Recompute published baseline
+        if: hashFiles('data/testset/*/posts.jsonl') != ''
+        run: uv run intentradar eval run --testset einprag-2026-09-27
+        env:
+          INTENTRADAR_LLM_MOCK: "1"

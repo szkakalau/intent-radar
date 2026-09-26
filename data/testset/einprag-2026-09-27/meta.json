@@ -1,0 +1,31 @@
+{
+  "project": "Einprag",
+  "snapshot_date": "2026-09-27",
+  "window_days": 3,
+  "pages_per_sub": 2,
+  "subreddits": [
+    "medicalschool",
+    "languagelearning",
+    "Anki",
+    "GetStudying",
+    "premed"
+  ],
+  "posts_per_sub": {
+    "medicalschool": 47,
+    "languagelearning": 23,
+    "Anki": 43,
+    "GetStudying": 50,
+    "premed": 48
+  },
+  "total_posts": 211,
+  "collected_at": "2026-09-27T02:15:20+0800",
+  "source": "ScrapeCreators /v1/reddit/subreddit sort=new",
+  "note": "窗口内全部帖子（非仅命中），用于 eval 复算基线",
+  "privacy": "author/user names are never stored",
+  "testset_id": "einprag-2026-09-27",
+  "judge_version": "v3.0.0",
+  "layer": "rule_v3",
+  "min_score": 5,
+  "cutoff_utc": 1790187320,
+  "total_in_window": 211
+}

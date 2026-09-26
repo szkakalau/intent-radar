@@ -1,0 +1,31 @@
+{
+  "project": "IntentRadar_自举",
+  "snapshot_date": "2026-09-27",
+  "window_days": 3,
+  "pages_per_sub": 2,
+  "subreddits": [
+    "SaaS",
+    "indiehackers",
+    "startups",
+    "Entrepreneur",
+    "microsaas"
+  ],
+  "posts_per_sub": {
+    "SaaS": 48,
+    "indiehackers": 7,
+    "startups": 23,
+    "Entrepreneur": 11,
+    "microsaas": 48
+  },
+  "total_posts": 137,
+  "collected_at": "2026-09-27T02:17:49+0800",
+  "source": "ScrapeCreators /v1/reddit/subreddit sort=new",
+  "note": "窗口内全部帖子（非仅命中），用于 eval 复算基线",
+  "privacy": "author/user names are never stored",
+  "testset_id": "bootstrap-2026-09-27",
+  "judge_version": "v3.0.0",
+  "layer": "rule_v3",
+  "min_score": 5,
+  "cutoff_utc": 1790187469,
+  "total_in_window": 137
+}

@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "_说明": "多项目监控配置（schema v2）。每个项目独立关键词 + subreddit，一次运行全部扫完。新增项目直接复制一段。每天每 sub 扫 2 页，成本约 12 credits/项目/天。",
+  "_schema": {
+    "version": "int, 当前固定为 2",
+    "global": "pages_per_sub / cache_max_age / window_days / min_score",
+    "projects[].name": "str, 唯一项目名",
+    "projects[].enabled": "bool, false 则跳过",
+    "projects[].subreddits": "non-empty list[str]",
+    "projects[].keywords": "non-empty list[str], 品类词",
+    "projects[].competitors": "list[str], 竞品名",
+    "projects[].pain_words": "list[str], reserved / unused in rule_v3（v3 打分只用模块常量 PAIN_WORDS）"
+  },
+
+  "global": {
+    "pages_per_sub": 2,
+    "cache_max_age": "1d",
+    "window_days": 3,
+    "min_score": 5
+  },
+
+  "projects": [
+    {
+      "name": "Einprag",
+      "enabled": true,
+      "site": "einprag.com",
+      "subreddits": ["medicalschool", "languagelearning", "Anki", "GetStudying", "premed"],
+      "keywords": ["flashcard", "flash card", "spaced repetition", "anki", "memorize", "srs"],
+      "competitors": ["ankiapp", "ankidroid", "quizlet", "brainscape"],
+      "pain_words": ["storage", "slow", "expensive", "hate", "sucks", "annoying", "problem", "issue", "broken", "alternative", "instead of", "switch", "better than", "free"]
+    },
+    {
+      "name": "IntentRadar_自举",
+      "enabled": true,
+      "site": "（本工具自己）",
+      "subreddits": ["SaaS", "indiehackers", "startups", "Entrepreneur", "microsaas"],
+      "keywords": ["reddit marketing", "reddit", "find customers", "first users", "first customers", "cold outreach", "lead gen", "lead generation", "get traction", "distribution", "get users", "no users", "marketing"],
+      "competitors": ["gummysearch", "redreach", "octolens", "syften", "subredditsignals", "leadmore", "phantombuster"],
+      "pain_words": []
+    },
+    {
+      "name": "AimFast",
+      "enabled": false,
+      "site": "aimfast.dev",
+      "subreddits": ["indiehackers", "SaaS", "startups"],
+      "keywords": ["trend", "market research", "what to build", "idea validation", "find niche"],
+      "competitors": ["exploding topics", "trends.vc", "gummysearch"],
+      "pain_words": ["how do i find", "any tool", "recommend", "alternative", "looking for"]
+    }
+  ]
+}

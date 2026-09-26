@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "intentradar"
+version = "0.1.0"
+description = "Reddit intent radar: find buying-intent posts, publish the accuracy, let anyone re-run it."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Castro" }]
+keywords = ["reddit", "intent", "lead-generation", "nemotron", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    # Single HTTP client for both collection and LLM calls.
+    # httpx has trust_env=True by default -> honours HTTPS_PROXY / HTTP_PROXY / ALL_PROXY.
+    "httpx>=0.27,<0.29",
+    # Loads the repo-root .env so "clone -> write .env -> run" works.
+    "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+intentradar = "intentradar.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/intentradar"]
+
+[tool.pytest.ini_options]
+# CI must pass fully offline. Network-dependent tests are opt-in via -m network.
+addopts = "-m 'not network'"
+testpaths = ["tests"]
+markers = [
+    "network: test requires outbound network access",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", "data", "reports"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "B008"]
+
+[tool.coverage.run]
+source = ["src/intentradar"]
