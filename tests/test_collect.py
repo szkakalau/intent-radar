@@ -100,6 +100,53 @@ def test_http_error_raises_provider_error() -> None:
     assert excinfo.value.exit_code == 4
 
 
+def test_5xx_is_retried_before_giving_up() -> None:
+    """5xx is transient: max_retries=2 must produce 3 attempts, then ProviderError."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(500, text="server error")
+
+    provider = _provider(handler, max_retries=2)
+    with pytest.raises(ProviderError) as excinfo:
+        provider.fetch_subreddit("Anki", pages=1)
+    assert calls["n"] == 3, "5xx must be retried max_retries+1 times"
+    assert "HTTP 500" in excinfo.value.message
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 429])
+def test_4xx_is_not_retried(status: int) -> None:
+    """4xx is a client error (bad key / bad params): one attempt, then raise."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(status, text="client error")
+
+    provider = _provider(handler, max_retries=3)
+    with pytest.raises(ProviderError) as excinfo:
+        provider.fetch_subreddit("Anki", pages=1)
+    assert calls["n"] == 1, f"HTTP {status} must not be retried"
+    assert f"HTTP {status}" in excinfo.value.message
+
+
+def test_5xx_that_recovers_returns_the_posts() -> None:
+    """A 500 followed by a 200 must succeed rather than raise."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(503, text="unavailable")
+        return httpx.Response(200, json=FAKE_RESPONSE)
+
+    provider = _provider(handler, max_retries=2)
+    result = provider.fetch_subreddit("Anki", pages=1)
+    assert calls["n"] == 2
+    assert len(result.posts) == 2
+
+
 def test_transport_error_retries_then_raises() -> None:
     """Transport errors are retried, then reported as ProviderError."""
     calls = {"n": 0}

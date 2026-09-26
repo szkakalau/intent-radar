@@ -21,7 +21,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from intentradar.errors import ProviderError
+from intentradar.errors import ConfigError, ProviderError
 
 log = logging.getLogger(__name__)
 
@@ -162,19 +162,32 @@ class HttpBackend:
                 else:
                     with httpx.Client(timeout=self.timeout_s) as client:
                         response = client.post(url, json=payload, headers=headers)
-                if response.status_code >= 400:
-                    raise ProviderError(
-                        "nemotron",
-                        f"HTTP {response.status_code}: {response.text[:200]}",
-                    )
-                return response.json()
-            except ProviderError:
-                raise
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 if attempt >= self.max_retries:
                     break
                 self._sleep(1.5 * (attempt + 1))
+                continue
+
+            code = response.status_code
+            if 400 <= code < 500:
+                # 4xx is a client error (bad key / bad payload): retrying cannot help.
+                raise ProviderError("nemotron", f"HTTP {code}: {response.text[:200]}")
+            if code >= 400:
+                # 5xx is transient — fall through to the backoff below.
+                last_error = f"HTTP {code}: {response.text[:200]}"
+                if attempt >= self.max_retries:
+                    break
+                self._sleep(1.5 * (attempt + 1))
+                continue
+            try:
+                return response.json()
+            except ValueError as exc:
+                last_error = f"invalid JSON: {exc}"
+                if attempt >= self.max_retries:
+                    break
+                self._sleep(1.5 * (attempt + 1))
+
         raise ProviderError(
             "nemotron", f"failed after {self.max_retries + 1} attempt(s): {last_error}"
         )
@@ -250,6 +263,15 @@ class NemotronClient:
         """Mock when configured (or keyless), otherwise the HTTP backend."""
         if self.config.mock or not self.config.api_key:
             return MockBackend(max_tokens=self.config.max_tokens)
+        return self._http_backend()
+
+    def _http_backend(self) -> HttpBackend:
+        """Build the real backend (Nebius)."""
+        if not self.config.api_key:
+            raise ConfigError(
+                "env NEBIUS_API_KEY: expected a key for live calls, got empty — "
+                "set it in .env, or leave it unset to run in mock mode"
+            )
         return HttpBackend(
             api_key=self.config.api_key,
             base_url=self.config.base_url,
@@ -307,6 +329,26 @@ class NemotronClient:
         """Whether this client is running against the deterministic mock."""
         return isinstance(self._backend, MockBackend)
 
+    def _require_known_price(self, model: str) -> None:
+        """Honour ``INTENTRADAR_ALLOW_UNPRICED``.
+
+        With the switch off, an unpriced model is refused *before* any request is
+        sent — otherwise the operator would silently accept a billable call whose
+        cost the budget gate cannot compute. Mock traffic is always exempt: it is
+        offline and costs nothing.
+        """
+        if self.config.allow_unpriced or self.is_mock:
+            return
+        if model.strip().lower() in MODEL_PRICING:
+            return
+        raise ConfigError(
+            f"model {model!r} has no configured price and INTENTRADAR_ALLOW_UNPRICED=0 — "
+            f"add it to MODEL_PRICING (in/out USD per 1M tokens) in "
+            f"src/intentradar/llm/client.py, or set INTENTRADAR_ALLOW_UNPRICED=1 to "
+            f"bill it at the conservative fallback estimate "
+            f"(${PRICING_FALLBACK_PER_1M['in']:.2f}/${PRICING_FALLBACK_PER_1M['out']:.2f})"
+        )
+
     def complete(
         self,
         system: str,
@@ -321,6 +363,7 @@ class NemotronClient:
         Order: resolve model → cache lookup → gate → budget → call → account.
         """
         model = self.config.model_for(tier)
+        self._require_known_price(model)
         temp = self.config.temperature if temperature is None else temperature
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         key = self._cache_key(model, temp, messages)

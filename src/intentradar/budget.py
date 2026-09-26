@@ -30,6 +30,12 @@ log = logging.getLogger(__name__)
 WARN_RATIO = 0.9  # 90% -> WARNING
 BLOCK_RATIO = 1.0  # 100% -> refuse to run
 
+# ScrapeCreators sells credits, not dollars: $47 per 25,000 credits.
+# The monthly budget is a *money* circuit-breaker, so collection spend has to be
+# converted into USD — otherwise a runaway `run` loop could burn unlimited
+# credits while the breaker still reported 0% used.
+SCRAPE_CREDIT_USD = 47.0 / 25000  # ~$0.00188 per credit
+
 
 @dataclass
 class Usage:
@@ -150,11 +156,21 @@ class BudgetGuard:
 
     # ── checks ─────────────────────────────────────────────────────────────
     @property
+    def scrape_cost_usd(self) -> float:
+        """Collection spend converted to USD at :data:`SCRAPE_CREDIT_USD`."""
+        return self.usage.scrape_credits * SCRAPE_CREDIT_USD
+
+    @property
+    def effective_cost_usd(self) -> float:
+        """Total attributed spend: LLM cost + collection cost, in USD."""
+        return self.usage.cost_usd + self.scrape_cost_usd
+
+    @property
     def ratio(self) -> float:
-        """Fraction of the monthly budget consumed."""
+        """Fraction of the monthly budget consumed (LLM **and** collection)."""
         if self.monthly_budget_usd <= 0:
             return 0.0
-        return self.usage.cost_usd / self.monthly_budget_usd
+        return self.effective_cost_usd / self.monthly_budget_usd
 
     def check(self) -> BudgetState:
         """Return the current budget state (BLOCKED only at >= 100%)."""
@@ -170,7 +186,7 @@ class BudgetGuard:
         state = self.check()
         if state is BudgetState.BLOCKED:
             raise BudgetExceeded(
-                self.usage.cost_usd,
+                self.effective_cost_usd,
                 self.monthly_budget_usd,
                 "run `intentradar budget --reset` after topping up, or raise "
                 "INTENTRADAR_MONTHLY_BUDGET_USD",
@@ -179,7 +195,7 @@ class BudgetGuard:
             log.warning(
                 "monthly budget at %.0f%% ($%.2f / $%.2f)",
                 self.ratio * 100,
-                self.usage.cost_usd,
+                self.effective_cost_usd,
                 self.monthly_budget_usd,
             )
         return state
@@ -187,10 +203,11 @@ class BudgetGuard:
     def summary(self) -> str:
         """One-line human summary for the terminal."""
         return (
-            f"本月已用 ${self.usage.cost_usd:.2f} / ${self.monthly_budget_usd:.2f}"
-            f" ({self.ratio * 100:.0f}%) · LLM {self.usage.llm_calls} calls"
+            f"本月已用 ${self.effective_cost_usd:.2f} / ${self.monthly_budget_usd:.2f}"
+            f" ({self.ratio * 100:.0f}%) · LLM ${self.usage.cost_usd:.2f}"
+            f" · 抓取 {self.usage.scrape_credits} credits (≈${self.scrape_cost_usd:.2f})"
+            f" · LLM {self.usage.llm_calls} calls"
             f" · {self.usage.prompt_tokens}in/{self.usage.completion_tokens}out tokens"
-            f" · credits {self.usage.scrape_credits}"
         )
 
 

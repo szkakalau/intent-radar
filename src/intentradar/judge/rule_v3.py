@@ -5,7 +5,7 @@ RED LINE MODULE
 The scoring constants and the ``score()`` body below are a **byte-for-byte
 port** of ``scripts/monitor.py`` lines 110–190, including list order, the
 ``break`` statements and the ``[:24]`` truncation. The published baseline
-(208 posts in window → 6 hits → 2.9%) is only reproducible if this behaviour is
+(211 posts in window → 6 hits → 2.8%) is only reproducible if this behaviour is
 preserved exactly. Do not "clean up" these regexes without bumping
 ``models.JUDGE_VERSION`` and re-publishing the number.
 

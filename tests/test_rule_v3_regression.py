@@ -4,7 +4,7 @@ It replays the frozen snapshots in ``data/testset/`` through the migrated judge
 and asserts the hit set is **identical** to the one produced by the original
 ``scripts/monitor.py`` (recorded in ``scripts/reports/2026-09-27.json``).
 
-If this test fails, the published "2.9%" is no longer reproducible and every
+If this test fails, the published "2.8%" is no longer reproducible and every
 downstream number is meaningless. Fix the judge, not this file.
 """
 
@@ -27,8 +27,9 @@ WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.json"
 
 # (score, signals, why) — copied verbatim from scripts/reports/2026-09-27.json.
 #
-# NOTE on the denominator: the production run that produced 2.9% executed at
-# 2026-09-27 01:40 and saw 208 posts in its rolling 3-day window. The frozen
+# NOTE on the denominator (the 2.9% below is the *historical* figure and is kept
+# on purpose — do not "fix" it): the production run that produced 2.9% executed
+# at 2026-09-27 01:40 and saw 208 posts in its rolling 3-day window. The frozen
 # snapshot was taken 35 minutes later (02:15), by which time the rolling window
 # had drifted and held 211 posts. The HIT SET IS IDENTICAL — only the
 # denominator moved. We publish the frozen snapshot's own number (211 → 6 →

@@ -1,12 +1,16 @@
 """Shared pytest fixtures.
 
 The default test run must be fully offline: every fixture redirects persistent
-state into ``tmp_path`` and forces the deterministic mock LLM backend.
+state into ``tmp_path``, forces the deterministic mock LLM backend, and — see
+:func:`_block_outbound_network` — makes any socket access an outright failure
+rather than a convention that future tests have to remember.
 """
 
 from __future__ import annotations
 
 import json
+import socket
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -14,6 +18,45 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = REPO_ROOT / "src"
 TESTSET_DIR = REPO_ROOT / "data" / "testset"
+
+
+class OutboundNetworkAttempted(RuntimeError):
+    """Raised when a test reaches for the network during an offline run."""
+
+
+def _refuse(*_args: object, **_kwargs: object) -> None:
+    """Socket stub — every network entry point lands here."""
+    raise OutboundNetworkAttempted(
+        "this test tried to open a socket, but the suite must stay fully offline "
+        "(see the _block_outbound_network fixture in tests/conftest.py)"
+    )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _block_outbound_network(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Make "CI passes offline" an enforced fact instead of a convention.
+
+    ``addopts = "-m 'not network'"`` only works while every test remembers to
+    stay offline. Patching the socket entry points turns a future accidental
+    request into a loud failure — which matters here, because the whole product
+    promise is that a stranger can recompute our number without credentials.
+
+    Opt out explicitly with ``pytest -m network`` / ``-m 'network or not network'``
+    when a test genuinely needs the internet (none does today).
+    """
+    markexpr = request.config.getoption("markexpr") or ""
+    if "network" in markexpr:
+        yield
+        return
+
+    saved = (socket.socket, socket.create_connection, socket.getaddrinfo)
+    socket.socket = _refuse  # type: ignore[assignment, misc]
+    socket.create_connection = _refuse  # type: ignore[assignment]
+    socket.getaddrinfo = _refuse  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        socket.socket, socket.create_connection, socket.getaddrinfo = saved
 
 
 @pytest.fixture(autouse=True)

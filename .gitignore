@@ -30,6 +30,7 @@ htmlcov/
 # --- local scratch (dev artifacts, never commit) ----------------------------
 _debug_*.py
 pytest_out.txt
+po*.txt
 
 # --- editors / os -----------------------------------------------------------
 .vscode/

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 
 from intentradar.budget import BudgetGuard, RunGates
-from intentradar.errors import GateExceeded, ProviderError
+from intentradar.errors import ConfigError, GateExceeded, ProviderError
 from intentradar.llm import (
     MODEL_PRICING,
     PRICING_FALLBACK_PER_1M,
@@ -26,21 +27,42 @@ REAL_PAYLOAD = {
 }
 
 
-def _http_client(config: LLMConfig, budget=None, gates=None, payload=None) -> NemotronClient:
+def _http_client(
+    config: LLMConfig,
+    budget=None,
+    gates=None,
+    payload=None,
+    handler=None,
+    max_retries=None,
+) -> NemotronClient:
     """A client whose transport is mocked, exercising the real HttpBackend path.
 
     Nothing in this module ever touches the network: every "real" call is served
     by an httpx MockTransport.
     """
     body = payload or REAL_PAYLOAD
-    handler = lambda request: httpx.Response(200, json=body)  # noqa: E731
+    if handler is None:
+        handler = lambda request: httpx.Response(200, json=body)  # noqa: E731
+    kwargs = {"max_retries": max_retries} if max_retries is not None else {}
     backend = HttpBackend(
         api_key="test-key",
         base_url=config.base_url,
         client=httpx.Client(transport=httpx.MockTransport(handler)),
         sleep_fn=lambda _: None,
+        **kwargs,
     )
     return NemotronClient(config=config, backend=backend, budget=budget, gates=gates)
+
+
+def _counting_handler(status: int, text: str = "boom") -> tuple[Any, dict[str, int]]:
+    """A handler that always fails with ``status`` and counts the attempts."""
+    counter = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        counter["n"] += 1
+        return httpx.Response(status, text=text)
+
+    return handler, counter
 
 
 def _fields(response: LLMResponse) -> set[str]:
@@ -162,6 +184,86 @@ def test_budget_blocked_prevents_new_calls(tmp_data_dir: Path) -> None:
     with pytest.raises(Exception) as excinfo:
         client.complete("sys", "hi")
     assert excinfo.value.__class__.__name__ == "BudgetExceeded"
+
+
+def test_5xx_is_retried_before_giving_up(tmp_data_dir: Path) -> None:
+    """5xx is transient: max_retries=2 must produce 3 attempts, then ProviderError."""
+    handler, counter = _counting_handler(500)
+    config = LLMConfig(api_key="k", model="nvidia/nemotron-3-super-120b-a12b",
+                       cache_dir=tmp_data_dir / "cache")
+    client = _http_client(config, handler=handler, max_retries=2)
+    with pytest.raises(ProviderError) as excinfo:
+        client.complete("sys", "hi")
+    assert counter["n"] == 3, "5xx must be retried max_retries+1 times"
+    assert "HTTP 500" in excinfo.value.message
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+def test_4xx_is_not_retried(tmp_data_dir: Path, status: int) -> None:
+    """4xx is a client error: one attempt, immediate ProviderError."""
+    handler, counter = _counting_handler(status)
+    config = LLMConfig(api_key="k", model="nvidia/nemotron-3-super-120b-a12b",
+                       cache_dir=tmp_data_dir / "cache")
+    client = _http_client(config, handler=handler, max_retries=3)
+    with pytest.raises(ProviderError) as excinfo:
+        client.complete("sys", "hi")
+    assert counter["n"] == 1, f"HTTP {status} must not be retried"
+    assert f"HTTP {status}" in excinfo.value.message
+
+
+def test_5xx_that_recovers_returns_the_response(tmp_data_dir: Path) -> None:
+    """A 500 followed by a 200 must succeed rather than raise."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(503, text="unavailable")
+        return httpx.Response(200, json=REAL_PAYLOAD)
+
+    config = LLMConfig(api_key="k", model="nvidia/nemotron-3-super-120b-a12b",
+                       cache_dir=tmp_data_dir / "cache")
+    response = _http_client(config, handler=handler, max_retries=2).complete("sys", "hi")
+    assert calls["n"] == 2
+    assert response.content == "hello from nemotron"
+
+
+def test_allow_unpriced_zero_refuses_an_unpriced_model(tmp_data_dir: Path) -> None:
+    """INTENTRADAR_ALLOW_UNPRICED=0: unknown model is refused *before* the call."""
+    handler, counter = _counting_handler(200)
+    config = LLMConfig(api_key="k", model="nvidia/some-unpriced-model",
+                       cache_dir=tmp_data_dir / "cache", allow_unpriced=False)
+    client = _http_client(config, handler=handler, max_retries=1)
+    with pytest.raises(ConfigError) as excinfo:
+        client.complete("sys", "hi")
+    assert counter["n"] == 0, "must refuse before spending anything"
+    assert "INTENTRADAR_ALLOW_UNPRICED" in excinfo.value.message
+    assert excinfo.value.exit_code == 2
+
+
+def test_allow_unpriced_zero_allows_a_priced_model(tmp_data_dir: Path) -> None:
+    """A model present in MODEL_PRICING still runs with the switch off."""
+    config = LLMConfig(api_key="k", model="nvidia/nemotron-3-super-120b-a12b",
+                       cache_dir=tmp_data_dir / "cache", allow_unpriced=False)
+    response = _http_client(config).complete("sys", "hi")
+    assert response.content == "hello from nemotron"
+
+
+def test_allow_unpriced_one_uses_the_fallback_estimate(tmp_data_dir: Path) -> None:
+    """With the switch on (default), an unpriced model bills the fallback."""
+    config = LLMConfig(api_key="k", model="nvidia/some-unpriced-model",
+                       cache_dir=tmp_data_dir / "cache", allow_unpriced=True)
+    response = _http_client(config).complete("sys", "hi")
+    expected = 11 / 1e6 * PRICING_FALLBACK_PER_1M["in"] + 7 / 1e6 * PRICING_FALLBACK_PER_1M["out"]
+    assert response.cost_usd == pytest.approx(expected)
+
+
+def test_mock_mode_is_exempt_from_the_unpriced_check(tmp_data_dir: Path) -> None:
+    """Offline mock traffic must never be blocked by ALLOW_UNPRICED=0."""
+    config = LLMConfig(mock=True, cache_dir=tmp_data_dir / "cache", allow_unpriced=False)
+    response = NemotronClient(config=config).complete("sys", "hi")
+    assert response.mock is True
+    assert response.content
 
 
 def test_http_error_surfaces_as_provider_error(tmp_data_dir: Path) -> None:

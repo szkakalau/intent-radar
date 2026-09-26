@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from intentradar.budget import BudgetGuard, BudgetState, RunGates, Usage
+from intentradar.budget import SCRAPE_CREDIT_USD, BudgetGuard, BudgetState, RunGates, Usage
 from intentradar.errors import BudgetExceeded, GateExceeded
 
 
@@ -106,6 +106,44 @@ def test_100_percent_refuses_to_run(tmp_data_dir: Path) -> None:
     with pytest.raises(BudgetExceeded) as excinfo:
         guard.require_ok()
     assert excinfo.value.exit_code == 3
+
+
+def test_scrape_credits_count_toward_the_budget(tmp_data_dir: Path) -> None:
+    """Collection spend is converted to USD, so the breaker actually sees it.
+
+    Regression: with 100,000 credits burned and $0 of LLM spend, the breaker used
+    to report 0% and happily keep going.
+    """
+    path = tmp_data_dir / "usage.json"
+    guard = BudgetGuard(path=path, monthly_budget_usd=20.0)
+    guard.record_credits(100_000)
+
+    assert guard.usage.cost_usd == 0.0
+    assert guard.scrape_cost_usd == pytest.approx(100_000 * SCRAPE_CREDIT_USD)
+    assert guard.effective_cost_usd == pytest.approx(188.0)
+    assert guard.ratio >= 1.0
+    assert guard.check() is BudgetState.BLOCKED
+    with pytest.raises(BudgetExceeded):
+        guard.require_ok()
+
+
+def test_effective_cost_is_the_sum_of_both_sides(tmp_data_dir: Path) -> None:
+    """LLM cost and collection cost are added before the ratio is computed."""
+    path = tmp_data_dir / "usage.json"
+    guard = BudgetGuard(path=path, monthly_budget_usd=20.0)
+    guard.record_llm(_resp(cost_usd=2.0))
+    guard.record_credits(1_000)  # ≈ $1.88
+
+    assert guard.effective_cost_usd == pytest.approx(2.0 + 1_000 * SCRAPE_CREDIT_USD)
+    assert guard.ratio == pytest.approx((2.0 + 1.88) / 20.0, abs=1e-3)
+    assert guard.check() is BudgetState.OK
+    assert "credits" in guard.summary()
+
+
+def test_credit_conversion_is_a_real_number(tmp_data_dir: Path) -> None:
+    """$47 per 25,000 credits, and never zero (a zero price disables the gate)."""
+    assert SCRAPE_CREDIT_USD == pytest.approx(0.00188, abs=1e-6)
+    assert SCRAPE_CREDIT_USD > 0
 
 
 def test_month_rollover_resets_counters(tmp_data_dir: Path) -> None:

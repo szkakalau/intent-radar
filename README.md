@@ -129,7 +129,15 @@ fastest way to burn the whole credit balance:
 | `INTENTRADAR_MAX_LLM_CALLS` | 50 | **hard stop** — raise on the call that exceeds it |
 | `INTENTRADAR_MONTHLY_BUDGET_USD` | 20 | persisted to `data/usage.json`; 90% warns, 100% refuses to run |
 
+The monthly breaker covers **both sides of the spend**: LLM cost *and* collection
+cost. ScrapeCreators bills in credits, so credits are converted at
+`SCRAPE_CREDIT_USD = $47 / 25,000 ≈ $0.00188` per credit before being counted —
+without that conversion a runaway collection loop would burn credits while the
+breaker still reported 0% used.
+
 Usage accumulates across processes and resets automatically at month rollover.
+`INTENTRADAR_ALLOW_UNPRICED=0` makes the breaker strict: calling a model that is
+missing from `MODEL_PRICING` is refused before the request is sent.
 
 ---
 

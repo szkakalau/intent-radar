@@ -78,18 +78,32 @@ class ScrapeCreatorsProvider:
                 else:
                     with httpx.Client(timeout=self.timeout_s) as client:
                         response = client.get(url, params=params, headers=headers)
-                if response.status_code >= 400:
-                    body = response.text[:200]
-                    # 4xx is a client error (bad key / bad params): do not retry.
-                    raise ProviderError(
-                        self.name,
-                        f"HTTP {response.status_code} for r/{params.get('subreddit', '?')}: {body}",
-                    )
-                return response.json()
-            except ProviderError:
-                raise
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
+                if attempt >= self.max_retries:
+                    break
+                time.sleep(1.5 * (attempt + 1))
+                continue
+
+            code = response.status_code
+            sub_label = params.get("subreddit", "?")
+            if 400 <= code < 500:
+                # 4xx is a client error (bad key / bad params): do not retry.
+                raise ProviderError(
+                    self.name,
+                    f"HTTP {code} for r/{sub_label}: {response.text[:200]}",
+                )
+            if code >= 400:
+                # 5xx is transient — fall through to the backoff below.
+                last_error = f"HTTP {code} for r/{sub_label}: {response.text[:200]}"
+                if attempt >= self.max_retries:
+                    break
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            try:
+                return response.json()
+            except ValueError as exc:
+                last_error = f"invalid JSON for r/{sub_label}: {exc}"
                 if attempt >= self.max_retries:
                     break
                 time.sleep(1.5 * (attempt + 1))
