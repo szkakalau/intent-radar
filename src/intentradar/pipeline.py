@@ -17,7 +17,7 @@ from typing import Any
 from intentradar.budget import BudgetGuard, RunGates
 from intentradar.collect import SourceProvider
 from intentradar.config import ProjectConfig, Settings, Watchlist
-from intentradar.errors import ProviderError
+from intentradar.errors import ConfigError, ProviderError
 from intentradar.judge import Judge, get_judge
 from intentradar.models import LAYER_RULE_V3, Lead, Post
 from intentradar.report import ProjectSection, ReportWriter
@@ -122,7 +122,10 @@ class Pipeline:
         posts: list[Post] = []
         charged = 0
         remaining: int | None = None
+        cap_reached = False
         for sub in project.subreddits:
+            if cap_reached:
+                break
             try:
                 result = self.provider.fetch_subreddit(sub, pages=pages, cache=cache)
             except ProviderError as exc:
@@ -135,6 +138,8 @@ class Pipeline:
                 remaining = result.credits_remaining
             for post in result.posts:
                 if not self.gates.count_post():
+                    # Soft cap: stop pulling more posts, but keep the run alive.
+                    cap_reached = True
                     break
                 posts.append(post)
         if charged:
@@ -202,8 +207,6 @@ class Pipeline:
             projects = [p for p in projects if p.name in wanted]
             missing = wanted - {p.name for p in projects}
             if missing:
-                from intentradar.errors import ConfigError
-
                 raise ConfigError(
                     f"watchlist.projects: unknown or disabled project(s) {sorted(missing)}"
                 )

@@ -157,15 +157,15 @@ class Settings:
 
         watchlist_raw = _env_str("INTENTRADAR_WATCHLIST")
         watchlist_path = (
-            Path(watchlist_raw) if watchlist_raw else repo_root / "config" / "watchlist.json"
+            Path(watchlist_raw).expanduser()
+            if watchlist_raw
+            else (repo_root / "config" / "watchlist.json").expanduser()
         )
 
         return cls(
             repo_root=repo_root,
             data_dir=data_dir,
-            watchlist_path=Path(watchlist_raw).expanduser()
-            if watchlist_raw
-            else watchlist_path.expanduser(),
+            watchlist_path=watchlist_path,
             scrape_key=_env_str("SCRAPECREATORS_API_KEY"),
             nebius_key=_env_str("NEBIUS_API_KEY"),
             nebius_base_url=_env_str("NEBIUS_BASE_URL", DEFAULT_NEBUS_BASE_URL),

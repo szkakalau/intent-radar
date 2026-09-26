@@ -234,15 +234,3 @@ class RunGates:
         """One-line human summary for the terminal."""
         return f"posts {self.posts_seen}/{self.max_posts_per_source} · LLM {self.llm_calls}/{self.max_llm_calls}"
 
-
-def load_usage(path: Path) -> Usage:
-    """Read usage.json without constructing a guard (useful for reporting)."""
-    guard = BudgetGuard(path=Path(path))
-    return guard.usage
-
-
-def credits_remaining_hint(value: int | None) -> str:
-    """Format the provider's remaining-credits counter, or '' when unknown."""
-    if value is None:
-        return ""
-    return f" · 余额 {value}"

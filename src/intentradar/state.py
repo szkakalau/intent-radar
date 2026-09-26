@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -64,6 +65,4 @@ class StateStore:
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
         with tmp.open("w", encoding="utf-8") as fh:
             json.dump(self._data, fh, ensure_ascii=False, indent=2)
-        import os
-
         os.replace(tmp, self.path)

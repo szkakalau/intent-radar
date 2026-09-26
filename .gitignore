@@ -21,9 +21,15 @@ dist/
 .venv/
 venv/
 .pytest_cache/
+.pytest_tmp/
+.pytest_base/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# --- local scratch (dev artifacts, never commit) ----------------------------
+_debug_*.py
+pytest_out.txt
 
 # --- editors / os -----------------------------------------------------------
 .vscode/

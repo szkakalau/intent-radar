@@ -18,7 +18,7 @@ import time
 import httpx
 
 from intentradar.collect import SourceResult
-from intentradar.errors import MissingCredential
+from intentradar.errors import MissingCredential, ProviderError
 from intentradar.models import Post
 
 log = logging.getLogger(__name__)
@@ -66,7 +66,6 @@ class ScrapeCreatorsProvider:
     # ── internals ──────────────────────────────────────────────────────────
     def _request(self, params: dict[str, str]) -> dict:
         """Perform one GET, retrying transient failures. Raises ProviderError."""
-        from intentradar.errors import ProviderError
 
         url = f"{self.base_url}/v1/reddit/subreddit"
         headers = {"x-api-key": self.api_key, "Accept": "application/json"}

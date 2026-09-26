@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from intentradar.config import ProjectConfig, Watchlist
+from intentradar.errors import ConfigError
 from intentradar.judge import Judge, get_judge
 from intentradar.models import LAYER_RULE_V3, Lead, Post
 from intentradar.pipeline import dedupe_leads
@@ -118,8 +119,6 @@ class EvalDataset:
         base = Path(root) / testset_id
         posts_path = base / "posts.jsonl"
         if not posts_path.exists():
-            from intentradar.errors import ConfigError
-
             available = cls.list_available(root)
             raise ConfigError(
                 f"testset {testset_id!r} not found under {root}"
@@ -281,13 +280,9 @@ class EvalRunner:
         """Find the project config referenced by the dataset metadata."""
         name = dataset.meta.get("project")
         if not name:
-            from intentradar.errors import ConfigError
-
-            raise ConfigError(f"testset {dataset.testset_id}: meta.project is missing")
+                raise ConfigError(f"testset {dataset.testset_id}: meta.project is missing")
         if not self.watchlist_path:
-            from intentradar.errors import ConfigError
-
-            raise ConfigError("watchlist path is required to resolve the project config")
+                raise ConfigError("watchlist path is required to resolve the project config")
         return Watchlist.load(Path(self.watchlist_path)).get(str(name))
 
     def run(self, dataset: EvalDataset, project: ProjectConfig | None = None) -> EvalReport:
@@ -362,8 +357,6 @@ class EvalRunner:
                 for lead in report.hits:
                     fh.write(json.dumps(lead.to_dict(), ensure_ascii=False) + "\n")
         else:
-            from intentradar.errors import ConfigError
-
             raise ConfigError(f"export format {fmt!r}: expected csv or jsonl")
         log.info("exported %d hits to %s", len(report.hits), out_path)
         return out_path
