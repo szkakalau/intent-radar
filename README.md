@@ -87,6 +87,19 @@ a flag you should be tuning. `--layers` is the one option that matters:
 `eval score --layers rule_v4,rule_v4+llm` compares the v4 funnel instead of the
 shipping default.
 
+Two more, and they are the reason the LLM column is reproducible at all:
+
+```bash
+# freeze the model responses (needs an endpoint — done once, by us)
+uv run python -m intentradar eval score --testset einprag-2026-09-27 \
+    --layers rule_v4,rule_v4+llm --min-score 3 --record data/replay/einprag-2026-09-27
+
+# re-derive the same table from them — no network, no key, no endpoint
+uv run python -m intentradar eval score --testset einprag-2026-09-27 \
+    --layers rule_v4,rule_v4+llm --min-score 3 \
+    --replay data/replay/einprag-2026-09-27/rule_v4_llm
+```
+
 Exit codes: `0` ok · `1` evaluation mismatch · `2` config/credential · `3` gate/budget · `4` provider.
 
 ---
@@ -228,6 +241,14 @@ hits, so `rule_v3+llm`'s recall can never exceed `rule_v3`'s 1/10. A better
 model cannot fix a net that never caught the buyer. That is the entire reason
 `rule_v4` exists.
 
+> **Do not read "≤" as "screening".** The bound holds here in the degenerate
+> way: the mock answers `false` to everything, so `rule_v3+llm` scores 0/10
+> because it *deleted all six hits*, not because it judged them and kept one.
+> On this page the only place the semantic layer is shown actually screening is
+> **Stage 2** below, where a real model ran. The column above is a placeholder
+> that refuses to invent a number, and it is labelled as one by the tool that
+> printed it.
+
 **Stage 2 — the opt-in v4 pipeline, `rule_v4` → `rule_v4+llm`:**
 
 ```
@@ -257,6 +278,57 @@ llm: 0 calls · 0 errors · backend=n/a
 llm: 0 calls · 0 errors · backend=anthropic @ http://127.0.0.1:8787/v1 · model=deepseek-v4-flash
 note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they are excluded from every ratio above, not counted as 0.
 ```
+
+**The same table, recomputed by a stranger with no endpoint.** The stage-2
+column above depends on a model nobody else can call, which would make "a
+stranger can recompute our number" false for the one column that matters. So the
+42 model responses are frozen into this repository, and `--replay` re-derives the
+table from them with no network and no key:
+
+```
+$ intentradar eval score --testset einprag-2026-09-27 \
+      --layers rule_v4,rule_v4+llm --min-score 3 \
+      --replay data/replay/einprag-2026-09-27/rule_v4_llm
+
+REPLAYED — frozen model responses from 2026-09-27T07:28:41Z, model=deepseek-v4-flash. Not a live run.
+testset : einprag-2026-09-27   (frozen 2026-09-27)
+truth   : einprag-2026-09-27d  labels.csv sha256=2009ef74b2d1
+project : Einprag   min_score=3
+labels  : 211 rows · 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
+──────────────────────────────────────────────────────────────
+metric                      rule_v4 (v4.0.0)  rule_v4+llm (v4.5.0+llm)
+predicted                                 42                        11
+true positive                             10                         9
+false positive                            28                         0
+false negative                             0                         1
+precision                     26.3%  (10/38)             100.0%  (9/9)
+precision 95% CI                  [15%, 42%]               [70%, 100%]
+recall                       100.0%  (10/10)             90.0%  (9/10)
+recall 95% CI                    [72%, 100%]                [60%, 98%]
+F1                                     41.7%                     94.7%
+noise rate                    73.7%  (28/38)               0.0%  (0/9)
+unverified hits                            4                         2
+positives (n)                             10                        10
+──────────────────────────────────────────────────────────────
+llm: 0 calls · 0 errors · backend=n/a
+llm: 42 calls · 0 errors · backend=REPLAYED from data/replay/einprag-2026-09-27/rule_v4_llm · model=deepseek-v4-flash
+note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they are excluded from every ratio above, not counted as 0.
+```
+
+Two rows differ from the live block, and both are the point: the `REPLAYED —`
+banner on top, and `backend=REPLAYED … · model=deepseek-v4-flash` below. **A
+screenshot of this table carries its own provenance.** A test
+(`tests/test_replay.py`) replays the committed recording and compares every row
+of this block line by line, so the published table cannot drift from the
+reproducible one without the suite going red.
+
+Each frozen response carries its post id, judge version, model, endpoint,
+timestamp, the sha256 of the exact prompt, and the raw response text — see
+`data/replay/einprag-2026-09-27/rule_v4_llm/manifest.json`. Dropping any of
+those would leave a cache that cannot be audited. A replay never fills a gap
+from anywhere: if the prompt or the judge version changes, the replay **fails**
+naming what changed, rather than answering with a response to a different
+question.
 
 This is the two-stage funnel, and it is the core of the design:
 
@@ -376,6 +448,7 @@ page): a rate is never printed alone.** Any precision / recall / F1 / noise
 figure must carry its raw counts `(x/y)` and its 95% CI **on the same line**:
 
 ```
+(illustration — not tool output)
 precision 100.0% (9/9), 95% CI [70%, 100%]     ✅
 precision 100.0%                                ❌ — reads as "no false
                                                      positives"; the lower

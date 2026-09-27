@@ -66,7 +66,7 @@ class Judge(Protocol):
         ...
 
 
-def get_judge(layer: str = LAYER_RULE_V3, client: Any = None) -> Judge:
+def get_judge(layer: str = LAYER_RULE_V3, client: Any = None, **options: Any) -> Judge:
     """Return the judge implementation for ``layer``.
 
     Args:
@@ -74,6 +74,9 @@ def get_judge(layer: str = LAYER_RULE_V3, client: Any = None) -> Judge:
         client: optional pre-built LLM client for the semantic layer. When it is
             ``None`` the judge builds one from the environment on first use
             (mock when no key is configured).
+        **options: forwarded to the composite judge — ``store=`` builds one that
+            answers from a frozen recording instead of an endpoint, which is how
+            a replay runs on a clean clone with no key.
 
     Raises:
         ConfigError: if the layer is unknown.
@@ -87,7 +90,7 @@ def get_judge(layer: str = LAYER_RULE_V3, client: Any = None) -> Judge:
     if layer in COMPOSITE_LAYERS:
         base_layer, _version = COMPOSITE_LAYERS[layer]
         base: Judge = RuleV4Judge() if base_layer == LAYER_RULE_V4 else RuleV3Judge()
-        judge = LLMJudge(client=client, rule=base)
+        judge = LLMJudge(client=client, rule=base, **options)
     elif layer == LAYER_RULE_V3:
         judge = RuleV3Judge()
     elif layer == LAYER_RULE_V4:

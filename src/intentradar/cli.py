@@ -94,6 +94,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="comma-separated layers to compare (default: rule_v3,rule_v3+llm)",
     )
+    eval_score.add_argument(
+        "--record",
+        metavar="DIR",
+        default="",
+        help="freeze every model response into DIR so the table can be replayed offline",
+    )
+    eval_score.add_argument(
+        "--replay",
+        metavar="DIR",
+        default="",
+        help="re-derive the table from frozen responses in DIR; no network, no key",
+    )
 
     eval_density = eval_sub.add_parser(
         "density",
@@ -261,8 +273,13 @@ def cmd_eval_export(args: argparse.Namespace, settings: Settings) -> int:
 
 def cmd_eval_score(args: argparse.Namespace, settings: Settings) -> int:
     """`intentradar eval score` — the published accuracy, both layers, no hiding."""
+    from intentradar.errors import ConfigError
     from intentradar.judge import get_judge
     from intentradar.llm import build_client
+
+    if args.record and args.replay:
+        print("ERROR: --record and --replay are mutually exclusive", file=sys.stderr)
+        return EXIT_CONFIG
 
     dataset = EvalDataset.load(args.testset, settings.testset_dir)
     watchlist = Watchlist.load(settings.watchlist_path)
@@ -271,13 +288,37 @@ def cmd_eval_score(args: argparse.Namespace, settings: Settings) -> int:
     requested = [s.strip() for s in args.layers.split(",") if s.strip()]
     layers = requested or ["rule_v3", "rule_v3+llm"]
 
+    # A replay must be able to run on a clean clone with no key, so the store is
+    # built before anything touches the network — and it replaces the client
+    # outright rather than sitting behind it as a fallback. A replay that can
+    # quietly fall through to a live endpoint is not a replay.
+    store = None
+    banner = ""
+    if args.replay:
+        if not any(layer.endswith("+llm") for layer in layers):
+            raise ConfigError(
+                f"--replay was given but no layer in {layers} uses the LLM — "
+                "there is nothing to replay. Pass e.g. "
+                "--layers rule_v4,rule_v4+llm"
+            )
+        from intentradar.replay import ReplayStore
+
+        store = ReplayStore.load(Path(args.replay))
+        # The banner is rendered by the report itself, above the numbers, so a
+        # screenshot of the table carries its provenance instead of losing it.
+        banner = store.banner()
+
     # Every composite layer needs the real client — not just rule_v3+llm.
     # Hard-coding the v3 name would silently score rule_v4+llm against the
     # deterministic mock and publish a fabricated number.
     client: Any = None
+    recorders: list[Any] = []
     judges: list[Any] = []
     for layer in layers:
         if layer.endswith("+llm"):
+            if store is not None:
+                judges.append(get_judge(layer, store=store))
+                continue
             # Budget + gates are attached so a scoring run cannot silently spend
             # more than the operator allowed. Built once and shared.
             if client is None:
@@ -292,12 +333,34 @@ def cmd_eval_score(args: argparse.Namespace, settings: Settings) -> int:
                         max_posts_per_source=settings.max_posts_per_source,
                     ),
                 )
-            judges.append(get_judge(layer, client=client))
+            judge = get_judge(layer, client=client)
+            if args.record:
+                from intentradar.replay import ReplayRecorder
+
+                recorder = ReplayRecorder(
+                    directory=Path(args.record) / layer.replace("+", "_"),
+                    testset_id=dataset.testset_id,
+                    layer=layer,
+                    judge_version=judge.judge_version,
+                    note=(
+                        f"recorded by `eval score --record` on {dataset.testset_id}; "
+                        "replay with `eval score --replay` reproduces this table exactly"
+                    ),
+                )
+                judge.recorder = recorder
+                recorders.append(recorder)
+            judges.append(judge)
         else:
             judges.append(get_judge(layer))
 
-    report = EvalScorer(judges).score(dataset, project=project, min_score=args.min_score or None)
+    report = EvalScorer(judges).score(
+        dataset, project=project, min_score=args.min_score or None, replay_banner=banner
+    )
     print(report.render())
+
+    for recorder in recorders:
+        path = recorder.close()
+        print(f"recorded {recorder.call_count} frozen responses → {path}")
     return EXIT_OK
 
 

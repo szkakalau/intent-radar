@@ -34,6 +34,8 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from intentradar.config import ProjectConfig
@@ -331,6 +333,12 @@ class LLMJudge:
     llm_calls: int = 0
     llm_errors: int = 0
     cache_hits: int = 0
+    replay_calls: int = 0
+    # Frozen-response plumbing. Exactly one of the two is ever set: a recorder
+    # writes what a live run produced, a store serves what a previous run
+    # recorded. Neither is allowed to fall back to the other.
+    recorder: Any = field(default=None, repr=False)
+    store: Any = field(default=None, repr=False)
     _settings: Any = field(default=None, repr=False)
 
     layer: str = LAYER_RULE_V3_LLM
@@ -359,8 +367,20 @@ class LLMJudge:
         return self.client
 
     @property
+    def is_replay(self) -> bool:
+        """Whether this judge answers from a frozen recording instead of a model."""
+        return self.store is not None
+
+    @property
     def is_mock(self) -> bool:
-        """Whether the LLM behind this judge is the deterministic offline mock."""
+        """Whether the LLM behind this judge is the deterministic offline mock.
+
+        A replay is NOT a mock: it answers with real model output, frozen. It
+        must not inherit the mock's "not a measurement" label, or the one form
+        of offline replay we can actually publish would disclaim itself.
+        """
+        if self.store is not None:
+            return False
         if self.client is None:
             return True
         return bool(getattr(self.client, "is_mock", False))
@@ -373,6 +393,12 @@ class LLMJudge:
         figures — so every printed number names the model that actually
         produced it, and mock output says so in as many words.
         """
+        if self.store is not None:
+            # as_posix + the path AS TYPED, so a replay run from a repo-relative
+            # path prints a repo-relative path. An absolute machine-specific path
+            # in a published report is a breadcrumb nobody asked for.
+            where = Path(self.store.directory).as_posix()
+            return f"REPLAYED from {where} · model={self.store.model}"
         if self.client is None:
             return "MOCK (no client configured; deterministic stand-in)"
         if self.is_mock:
@@ -403,17 +429,43 @@ class LLMJudge:
         return self.rule.is_noise(post)
 
     # ── internals ─────────────────────────────────────────────────────────
+    def _endpoint(self) -> str:
+        """The endpoint a live run would have used, recorded for provenance."""
+        client = self.client if self.client is not None else None
+        config = getattr(client, "config", None)
+        return str(getattr(config, "base_url", "") or "")
+
     def _ask(self, post: Post, project: ProjectConfig, base: Judgment) -> LLMVerdict:
         """One LLM call, with every failure mode turned into a recorded verdict."""
         from intentradar.errors import IntentRadarError
 
+        system = SYSTEM_PROMPT
+        user = build_user_prompt(post, project, base, self.description)
+
+        # ── replay: answer from the frozen recording, no network ────────────
+        if self.store is not None:
+            from intentradar.replay import prompt_digest
+
+            call = self.store.lookup(
+                post.id, self.judge_version, prompt_digest(system, user)
+            )
+            self.replay_calls += 1
+            verdict = parse_verdict(call.response)
+            verdict.model = call.model
+            verdict.cached = True
+            verdict.mock = False
+            if verdict.error:
+                self.llm_errors += 1
+                log.warning(
+                    "replayed response for post %s was unusable: %s",
+                    post.id,
+                    verdict.error,
+                )
+            return verdict
+
         client = self._client()
         try:
-            response = client.complete(
-                system=SYSTEM_PROMPT,
-                user=build_user_prompt(post, project, base, self.description),
-                tier="everyday",
-            )
+            response = client.complete(system=system, user=user, tier="everyday")
         except IntentRadarError as exc:
             self.llm_errors += 1
             log.warning("LLM judgment failed for post %s: %s", post.id, exc)
@@ -431,6 +483,25 @@ class LLMJudge:
         if verdict.error:
             self.llm_errors += 1
             log.warning("LLM judgment unusable for post %s: %s", post.id, verdict.error)
+
+        # ── record: freeze what produced this verdict ──────────────────────
+        # Recorded even when the verdict errored: a failed call is part of what
+        # produced the table, and dropping it would make the replay's numbers
+        # differ from the live run's for a reason nobody could see.
+        if self.recorder is not None:
+            from intentradar.replay import FrozenCall, prompt_digest
+
+            self.recorder.add(
+                FrozenCall(
+                    post_id=post.id,
+                    judge_version=self.judge_version,
+                    model=str(getattr(response, "model", "") or ""),
+                    endpoint=self._endpoint(),
+                    recorded_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    prompt_sha256=prompt_digest(system, user),
+                    response=str(getattr(response, "content", "") or ""),
+                )
+            )
         return verdict
 
     def _compose(
@@ -468,7 +539,8 @@ def require_llm_available(judge: LLMJudge) -> None:
     Kept separate from the constructor so that building a judge offline (tests,
     ``config check``) never needs a key.
     """
-    if judge.client is None and not judge.is_mock:
+    # A replay needs no endpoint by definition — that is the entire point of it.
+    if judge.client is None and not judge.is_mock and not judge.is_replay:
         raise ConfigError(
             "the rule_v3+llm layer needs an LLM endpoint — set "
             "INTENTRADAR_LLM_API_KEY (or NEBIUS_API_KEY) plus "

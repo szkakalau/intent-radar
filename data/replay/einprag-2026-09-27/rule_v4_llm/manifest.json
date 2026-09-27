@@ -1,0 +1,19 @@
+{
+  "testset_id": "einprag-2026-09-27",
+  "layer": "rule_v4+llm",
+  "judge_version": "v4.5.0+llm",
+  "model": "deepseek-v4-flash",
+  "endpoint": "http://127.0.0.1:8787/v1",
+  "recorded_at": "2026-09-27T07:28:41Z",
+  "calls": 42,
+  "note": "recorded by `eval score --record` on einprag-2026-09-27; replay with `eval score --replay` reproduces this table exactly",
+  "fields": [
+    "post_id",
+    "judge_version",
+    "model",
+    "endpoint",
+    "recorded_at",
+    "prompt_sha256",
+    "response"
+  ]
+}

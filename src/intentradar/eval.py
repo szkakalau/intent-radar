@@ -634,11 +634,16 @@ class ScoreReport:
     snapshot_date: str = ""
     label_version: str = ""
     label_sha256: str = ""
+    replay_banner: str = ""
 
     def render(self) -> str:
         """Terminal block: both layers side by side, nothing hidden."""
         sep = "─" * 62
-        lines = [
+        # A replayed table is not a live run, and it must not be readable as one.
+        # The banner goes FIRST, above the numbers, so a screenshot of the table
+        # carries its own provenance with it instead of losing it off-screen.
+        lines = [self.replay_banner] if self.replay_banner else []
+        lines += [
             f"testset : {self.testset_id}"
             + (f"   (frozen {self.snapshot_date})" if self.snapshot_date else ""),
             # A published number is meaningless without naming the ground truth
@@ -923,6 +928,7 @@ class EvalScorer:
         project: ProjectConfig | None = None,
         min_score: int | None = None,
         labels: LabelSet | None = None,
+        replay_banner: str = "",
     ) -> ScoreReport:
         """Compute precision / recall / F1 per layer against ``labels.csv``."""
         from intentradar.judge.llm import LLMJudge
@@ -975,7 +981,18 @@ class EvalScorer:
                     tn=tn,
                     unverified=sum(1 for pid in predicted if pid in ground_truth.undecided_ids),
                     skipped_unlabeled=len(ground_truth.undecided_ids),
-                    llm_calls=int(getattr(judge, "llm_calls", 0) or 0) if isinstance(judge, LLMJudge) else 0,
+                    # A replay counts as served-from-recording, not as a live
+                    # call: printing "0 calls" next to a real table is exactly
+                    # the ambiguity this whole feature exists to remove.
+                    llm_calls=(
+                        int(
+                            getattr(judge, "llm_calls", 0)
+                            or getattr(judge, "replay_calls", 0)
+                            or 0
+                        )
+                        if isinstance(judge, LLMJudge)
+                        else 0
+                    ),
                     llm_errors=int(getattr(judge, "llm_errors", 0) or 0) if isinstance(judge, LLMJudge) else 0,
                     mock=bool(getattr(judge, "is_mock", False)) if isinstance(judge, LLMJudge) else False,
                     backend=(
@@ -1006,4 +1023,5 @@ class EvalScorer:
             snapshot_date=str(dataset.meta.get("snapshot_date", "")),
             label_version=after[0],
             label_sha256=after[1],
+            replay_banner=replay_banner,
         )
