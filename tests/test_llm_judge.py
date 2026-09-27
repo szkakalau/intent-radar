@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import json
+import re
 
 import pytest
 from conftest import REPO_ROOT
@@ -200,6 +202,61 @@ def test_prompt_matches_the_committed_standard_text() -> None:
     for phrase in ("demand domain", "build-vs-buy", "willingness to pay"):
         assert phrase in standard, phrase
         assert phrase in SYSTEM_PROMPT.lower(), phrase
+
+
+_POST_ID_RE = re.compile(r"\b1[a-z0-9]{6}\b")
+
+
+def _standard_ids(standard: str, start: str, tail: str) -> list[str]:
+    """Every post id the standard cites between ``start`` and ``tail``.
+
+    The standard is prose, so the ids are scraped rather than parsed: it quotes
+    some in parentheses and some inline. What matters is that the sentence is
+    still there and still names the same rows.
+    """
+    match = re.search(re.escape(start) + r".*?" + re.escape(tail), standard, re.IGNORECASE)
+    assert match is not None, f"standard lost the sentence {start!r} ... {tail!r}"
+    ids = _POST_ID_RE.findall(match.group(0))
+    assert ids, f"no post ids found in {start!r} ... {tail!r}"
+    return ids
+
+
+def test_standard_precedents_agree_with_the_ground_truth() -> None:
+    """The ids the standard cites as settled must still be labelled that way.
+
+    The standard is prose that quotes example ids; labels.csv is the truth.
+    They drift apart the moment someone relabels a row and forgets the
+    precedent — and a precedent that contradicts its own ground truth is worse
+    than no precedent, because the judge prompt is synced from it.
+    """
+    meta_path = REPO_ROOT / "data" / "testset" / "einprag-2026-09-27" / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    standard = str(meta.get("label_judgement_standard", ""))
+    if "PRECEDENT 1" not in standard:
+        pytest.skip("standard has no precedents yet")
+
+    labels_path = REPO_ROOT / "data" / "testset" / "einprag-2026-09-27" / "labels.csv"
+    truth: dict[str, str] = {}
+    with labels_path.open(encoding="utf-8-sig", newline="") as fh:
+        for row in csv.DictReader(fh):
+            truth[str(row.get("id") or "").strip()] = str(row.get("label") or "").strip()
+
+    actionable_ids = _standard_ids(
+        standard, "every confirmed actionable", "names something acquirable"
+    )
+    assert len(actionable_ids) >= 8  # a truncated list would silently weaken this
+    for pid in actionable_ids:
+        assert truth.get(pid) == "actionable", (
+            f"standard cites {pid} as a confirmed actionable but labels.csv says "
+            f"{truth.get(pid)!r} — the precedent and the ground truth disagree"
+        )
+
+    family_ids = _standard_ids(standard, "1wq876x", "are ONE family")
+    for pid in family_ids:
+        assert truth.get(pid) == "borderline", (
+            f"standard cites {pid} as one method-request family but labels.csv says "
+            f"{truth.get(pid)!r} — promoting one alone is the inconsistency we reject"
+        )
 
 
 def test_demand_domain_reaches_the_model(project: ProjectConfig) -> None:
