@@ -180,6 +180,60 @@ class MockBackend:
         return content, prompt_tokens, completion_tokens
 
 
+# Reasoning models (Nemotron 3, DeepSeek-R1 class) may emit the chain of
+# thought in a separate field and leave ``content`` empty. The names differ per
+# provider, so they are all probed — but ONLY to explain a failure. The
+# reasoning text is never returned as the answer: quoting a model's private
+# reasoning as its verdict would be worse than no verdict, and it would look
+# like a working run.
+_REASONING_FIELDS = ("reasoning_content", "reasoning", "reasoning_text", "thinking")
+
+
+def _extract_openai_content(data: dict[str, Any]) -> str:
+    """Return the answer from an OpenAI-shaped response, or fail loudly.
+
+    Three shapes are handled:
+
+    * ``content`` is a non-empty string — the normal case, used as-is.
+    * ``content`` is empty/absent but a reasoning field is populated — the
+      answer was spent on thinking. Raising names the field, so the operator
+      sees *which* shape the endpoint returned instead of guessing. Raising the
+      token budget is the usual fix.
+    * anything else — an unexpected shape, reported with the payload.
+
+    Never returns a reasoning field's contents.
+    """
+    try:
+        message = data["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ProviderError("nemotron", f"unexpected response shape: {json.dumps(data)[:200]}") from exc
+    if not isinstance(message, dict):
+        raise ProviderError("nemotron", f"unexpected message type: {json.dumps(data)[:200]}")
+
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+
+    # content is empty: is this a reasoning model that spent the budget?
+    populated = [
+        name
+        for name in _REASONING_FIELDS
+        if isinstance(message.get(name), str) and message[name].strip()
+    ]
+    if populated:
+        raise ProviderError(
+            "nemotron",
+            "reasoning-only response: content is empty but the reasoning field(s) "
+            f"{populated} are populated — the answer was spent on thinking. Raise "
+            "INTENTRADAR_LLM_MAX_TOKENS and retry. The reasoning text is NOT used "
+            "as the verdict.",
+        )
+    raise ProviderError(
+        "nemotron",
+        f"empty content in response: {json.dumps(data)[:200]}",
+    )
+
+
 class HttpBackend:
     """Real backend: POST ``/v1/chat/completions`` (OpenAI compatible)."""
 
@@ -203,6 +257,9 @@ class HttpBackend:
         self.max_tokens = max_tokens
         self._client = client
         self._sleep = sleep_fn or time.sleep
+        # Last raw payload, kept only so `scripts/dump_raw_response.py` can show
+        # the real shape of an endpoint's reply. Never part of a judgment.
+        self.last_raw: dict[str, Any] | None = None
 
     # ── helpers ────────────────────────────────────────────────────────────
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -274,10 +331,8 @@ class HttpBackend:
             "max_tokens": self.max_tokens,
         }
         data = self._post(payload)
-        try:
-            content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ProviderError("nemotron", f"unexpected response shape: {json.dumps(data)[:200]}") from exc
+        self.last_raw = data
+        content = _extract_openai_content(data)
         usage = data.get("usage") or {}
         prompt_tokens = int(usage.get("prompt_tokens") or 0)
         completion_tokens = int(usage.get("completion_tokens") or 0)
@@ -331,6 +386,9 @@ class AnthropicBackend:
         self.max_tokens = max_tokens
         self._client = client
         self._sleep = sleep_fn or time.sleep
+        # Last raw payload, kept only so `scripts/dump_raw_response.py` can show
+        # the real shape of an endpoint's reply. Never part of a judgment.
+        self.last_raw: dict[str, Any] | None = None
 
     @property
     def url(self) -> str:
@@ -433,6 +491,7 @@ class AnthropicBackend:
             payload["temperature"] = self.temperature
 
         data = self._post(payload)
+        self.last_raw = data
         content = self._extract_text(data)
         usage = data.get("usage") or {}
         prompt_tokens = int(usage.get("input_tokens") or 0)
@@ -470,6 +529,16 @@ class NemotronClient:
         self._cache_path: Path | None = (
             Path(config.cache_dir) / "llm_cache.jsonl" if config.cache_dir else None
         )
+
+    @property
+    def last_raw_response(self) -> dict[str, Any] | None:
+        """The last raw payload the backend saw, for shape inspection only.
+
+        Exposed so ``scripts/dump_raw_response.py`` can show what an endpoint
+        actually returns before we trust any number from it — the one failure
+        mode (a reasoning-first model) cannot be rehearsed offline.
+        """
+        return getattr(self._backend, "last_raw", None)
 
     def _default_backend(self) -> _Backend:
         """Mock when configured (or keyless), otherwise the configured wire protocol."""

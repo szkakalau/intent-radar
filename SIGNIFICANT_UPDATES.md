@@ -13,6 +13,12 @@ commit range in this public repository.
 > inventing them. **Only the README carries citable figures**, and every figure
 > there is guarded by a test (`tests/test_docs_honesty.py`) that fails if a rate
 > appears without both its counts `(x/y)` and its interval on the same line.
+>
+> **The exemption is per-file, not per-number.** It covers this ledger only, and
+> it does **not travel with a number**: if any figure from here is quoted into
+> the README, a submission blurb, or any outward-facing page, that copy must
+> carry its counts and its interval — or drop the percentage and state the
+> counts alone. A number that leaves this file leaves its exemption behind.
 
 ---
 
@@ -627,6 +633,54 @@ threshold from `meta.json`, with the single exception of `rule_v4`'s documented
 candidate bar (3), which is explained as a property of the layer rather than a
 knob. A "what `min_score` means" note states that a score of 5 means *"worth a
 human look"*, not *"this person is a buyer"*.
+
+### Nemotron readiness: proven before the key exists
+
+The numbers on this page are `deepseek-v4-flash`. Re-running them on Nemotron
+must not require a code change at the moment the key arrives — a fix attempted
+under deadline pressure is how a wrong field gets shipped. So the whole path was
+exercised against a stub **before** any key existed:
+
+`scripts/nemotron_stub.py` serves an OpenAI-shaped `/v1/chat/completions` and
+answers the judge's schema. Configured as
+`INTENTRADAR_LLM_BACKEND=openai`, `INTENTRADAR_LLM_MODEL=nvidia/nemotron-3-super-120b-a12b`
+over it, a full `eval score` run completes and its identity line reads verbatim:
+
+```
+backend=openai @ http://127.0.0.1:8791/v1 · model=nvidia/nemotron-3-super-120b-a12b
+```
+
+i.e. the report names the model from configuration and cannot silently attribute
+one model's numbers to another.
+
+**The one failure mode that cannot be pre-tested.** Nemotron 3 is a reasoning
+model and emits reasoning before its answer. Where that reasoning lands in the
+JSON is not knowable in advance — `reasoning_content`, a `reasoning` block, or
+`content` itself — and mistaking it for the answer would produce a plausible
+verdict parsed out of the model's own deliberation. Two defences:
+
+1. `_extract_openai_content()` takes the answer from `content` only, and raises
+   `ProviderError` naming the fields it did find when `content` is empty or
+   absent, rather than falling through to a reasoning field. A stub that returns
+   reasoning-only is **refused with an actionable message**, not silently parsed.
+2. `scripts/dump_raw_response.py` dumps the raw payload of one real call,
+   field by field, so the first run against the real key can be inspected to
+   confirm the text being scored is not reasoning. `last_raw_response` was added
+   to both HTTP backends for this — previously the raw payload was discarded,
+   leaving no way to check after the fact.
+
+Both are pinned by `tests/test_reasoning_response_shape.py`.
+
+### The changelog exemption is per-file, not per-number
+
+`tests/test_docs_honesty.py` holds published pages to the format rule (a rate
+must carry counts + interval on the same line) and exempts exactly one file:
+this ledger, and only while it keeps its disclaimer header. Exempting a
+superseded historical figure is correct; exempting a *current* one is not. So
+the current figures in this file — the v4.5.0 table above and the rev-d
+baseline — were given real intervals rather than the exemption, and the test
+asserts the header still states that a figure **leaving** this file loses the
+exemption and must carry its counts and interval in its new home.
 
 ---
 

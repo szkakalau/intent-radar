@@ -124,6 +124,13 @@ _PUBLISHING_DOCS = ("README.md",)
 # its rows were written before the tool printed intervals, and back-filling
 # intervals onto a superseded run would be inventing them. It carries a header
 # saying so.
+#
+# THE EXEMPTION IS PER-FILE, NOT PER-NUMBER. It covers the ledger and nothing
+# else. A figure quoted out of the ledger into the README or any outward-facing
+# page loses the exemption and must carry counts + interval (or state counts
+# alone). That rule is restated in the ledger's own header, and the test below
+# only exempts while that header is present — so the exemption cannot quietly
+# widen into "any figure may be bare as long as it originated here".
 _EXEMPT_DOCS = {
     "SIGNIFICANT_UPDATES.md": "historical ledger; figures quoted as first printed",
 }
@@ -151,3 +158,22 @@ def test_docs_guard_covers_every_publishing_markdown_file() -> None:
 
     for name in _PUBLISHING_DOCS:
         assert (Path(REPO_ROOT) / name).exists(), f"{name} missing — the guard is vacuous"
+
+
+def test_the_exemption_does_not_travel_with_a_number() -> None:
+    """A figure leaving the ledger loses the exemption — pinned both ways.
+
+    Otherwise someone pastes a historical row into the README, the ledger is
+    exempt so nothing complains, and a bare percentage becomes a public claim.
+    """
+    ledger = REPO_ROOT / "SIGNIFICANT_UPDATES.md"
+    header = ledger.read_text(encoding="utf-8").lower()
+    assert "historical ledger" in header
+    assert "the exemption is per-file, not per-number" in header, (
+        "the ledger no longer states that its exemption stops at its own border"
+    )
+    assert "loses its exemption" in header or "leaves this file leaves" in header
+
+    # And the mechanism itself: a rate in a NON-exempt file is still caught.
+    offenders = _offenders("README.md content claiming 91.0% recall on einprag\n")
+    assert len(offenders) == 1
