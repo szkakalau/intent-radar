@@ -13,15 +13,15 @@ our number on their own machine with one command.
 > `eval score` prints precision / recall / F1 for **both**, each with raw counts,
 > the sample size, and a 95% Wilson interval.
 >
-> Read [Accuracy](#accuracy) before you trust any number here. The shipping
-> regex baseline measures **20.0% precision (1/5)** and **12.5% recall (1/8)**
-> on **8 labelled positives** — a 95% CI of `[4%, 62%]` and `[2%, 47%]`
-> respectively. We publish the interval rather than a bare percentage, because
-> on n=8 a number without one is not a measurement.
+> Read [Accuracy](#accuracy) before you trust any number here.
 >
-> ⚠ **Sample size n=8; pending ground-truth batch.** Every figure on this page is
-> staged at that sample size and will be refreshed **in the same commit as the
-> pending adjudication**, never quietly afterwards.
+> ⚠️ **These figures are being re-measured — do not cite them yet.** The ground
+> truth moved to `rev d` (10 positives, previously 8) and one judging rule was
+> repaired, so every percentage below is a `rev c` measurement and is now stale.
+> The final numbers land in one commit, tied to a `label_version` **and** a
+> `sha256` of `labels.csv`, never quietly afterwards. We print the 95% Wilson
+> interval beside every rate, because at this sample size a bare percentage is
+> not a measurement.
 
 ---
 
