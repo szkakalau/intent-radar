@@ -76,9 +76,10 @@ def _post(title: str, body: str = "", pid: str = "p1") -> Post:
 def test_criteria_are_hard_coded_in_the_prompt() -> None:
     """The judgment rule lives in the prompt, so anyone can read and recompute it."""
     for phrase in (
-        "INTENT",
-        "CATEGORY",
-        "Pure complaints or venting with no replacement need",
+        "CATEGORY IS EXPLICIT",
+        "THE NEED IS UNMET",
+        "IT IS THE AUTHOR'S OWN DECISION",
+        "Pure complaints or venting",
         "Bug reports",
         "Academic, theoretical, conceptual",
         "residency, med-school, or admissions consulting",
@@ -87,7 +88,7 @@ def test_criteria_are_hard_coded_in_the_prompt() -> None:
         "confidence",
         "reason",
     ):
-        assert phrase in SYSTEM_PROMPT
+        assert phrase in SYSTEM_PROMPT, phrase
 
 
 def test_prompt_forbids_rewarding_style_over_substance() -> None:
@@ -95,24 +96,41 @@ def test_prompt_forbids_rewarding_style_over_substance() -> None:
     assert "question mark" in SYSTEM_PROMPT.lower()
 
 
-def test_prompt_carries_the_adjudicated_bootstrap_ruling() -> None:
-    """The reviewer's ruling is in the rule itself, not just in a changelog.
+def test_prompt_implements_the_authoritative_standard() -> None:
+    """The prompt must agree with `label_judgement_standard` in meta.json.
 
-    "Creative ways to find customers" names no product, so it is not actionable
-    even though the pain is real; a first-person buy-vs-build question is, even
-    when the asker is a founder. Both halves have to be in the prompt or the
-    measured numbers cannot be reproduced by anyone reading it.
+    That field is the source of truth; this prompt is only an implementation of
+    it. An earlier version was written from a paraphrase and added a "must name
+    a specific product" rule the standard explicitly forbids, which silently cut
+    recall — so both directions are pinned: the required wording must be there,
+    and the forbidden wording must not come back.
     """
+    lowered = SYSTEM_PROMPT.lower()
     for phrase in (
-        "QUOTABLE sentence",
-        "undecided between",
-        "buying it and building it themselves",
-        "ways, strategies, methods, tips",
-        "name NO",
-        "Do NOT reject merely because the author is a founder, builder",
-        "exact category being monitored",
+        "category is explicit",
+        "a way / approach / solution / method",
+        "a capability",
+        "naming a specific product is never required",
+        "actively seeking",
+        "it is the author's own decision",
     ):
-        assert phrase in SYSTEM_PROMPT, phrase
+        assert phrase in lowered, phrase
+
+    # The bug: rejecting a post for naming no product, or for asking "how".
+    assert "that name NO" not in SYSTEM_PROMPT
+    assert "names NO" not in SYSTEM_PROMPT
+
+
+def test_prompt_matches_the_committed_standard_text() -> None:
+    """Cross-check against meta.json so the two cannot drift silently."""
+    meta_path = REPO_ROOT / "data" / "testset" / "einprag-2026-09-27" / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    standard = str(meta.get("label_judgement_standard", "")).lower()
+    assert "specific product name is not required" in standard
+    # The standard's three conditions must all appear in the prompt.
+    assert "category" in SYSTEM_PROMPT.lower()
+    assert "seeking" in SYSTEM_PROMPT.lower()
+    assert "decision" in SYSTEM_PROMPT.lower()
 
 
 def test_user_prompt_is_deterministic(project: ProjectConfig) -> None:

@@ -74,53 +74,74 @@ _COMPOSITE_BY_RULE_LAYER: dict[str, tuple[str, str]] = {
 # Hard-coded on purpose: this prompt IS the judgment rule. Changing it changes
 # the published precision, so changes belong in a commit with a re-run of
 # `eval score`, not in a runtime flag.
+#
+# AUTHORITATIVE SOURCE, READ IT BEFORE EDITING THIS:
+#   data/testset/<id>/meta.json -> "label_judgement_standard"
+# This prompt is an implementation of that text, not the other way round. An
+# earlier version was written from a paraphrase in chat and added a
+# "must name a specific product" constraint that the standard explicitly
+# forbids ("naming the CATEGORY is enough"), which silently cut recall.
 SYSTEM_PROMPT = """\
 You are a strict classifier for a Reddit lead-generation tool.
 
 You are given ONE post. Decide whether it expresses buying intent worth sending
 to a sales team.
 
-Answer is_actionable = true ONLY IF BOTH of these hold:
-  (1) INTENT — the post body contains a QUOTABLE sentence showing the author is
-      making an acquisition decision for THEMSELVES. Either:
-        (a) they name a specific tool, product, app, deck, textbook, vendor or
-            service — something they want, want to replace, or want to be
-            recommended; OR
-        (b) they state, in the first person, that they are undecided between
-            buying it and building it themselves.
-      "This person might plausibly buy something someday" is NOT intent. You
-      must be able to point at the sentence.
-  (2) CATEGORY — that need maps to a real, purchasable product or service
-      category: software, app, tool, device, subscription, or paid service.
+Answer is_actionable = true ONLY IF ALL THREE of these hold:
 
-Answer is_actionable = false for:
-  * Requests for ways, strategies, methods, tips or approaches that name NO
-    product at all — e.g. "creative ways to find customers", "how do I get my
-    first paying customer", "best way to get SaaS clients". There is real pain
-    here but there is nothing to sell yet.
-  * Pure complaints or venting with no replacement need ("this is so slow, ugh").
+  (1) CATEGORY IS EXPLICIT — the post tells you what KIND of thing the author
+      needs. A need counts as naming a category if it is any of:
+        * a product, tool or app (Anki, a flashcard app, a CRM, a deck);
+        * a service (a course, tutoring, consulting, a subscription);
+        * a way / approach / solution / method ("a way to find customers",
+          "how to reduce support tickets");
+        * a capability ("being able to scrape and monitor posts").
+      NAMING A SPECIFIC PRODUCT IS NEVER REQUIRED — naming the category is
+      sufficient. Never reject a post merely because it asks "how" or asks for
+      "a way" instead of naming a tool.
+      You are NOT being asked whether the category is exactly the product the
+      monitored project sells: naming the category is enough, and adjacency in
+      the same problem space counts. Only a post that is CLEARLY UNRELATED
+      fails here.
+
+  (2) THE NEED IS UNMET AND THEY ARE ACTIVELY SEEKING — the current approach
+      is not working and the author is looking for a solution: complaining
+      about it AND asking, or actively asking for recommendations,
+      alternatives, or how to choose.
+
+  (3) IT IS THE AUTHOR'S OWN DECISION — the author holds or shares the
+      purchase decision.
+
+Answer is_actionable = false if ANY of the three is missing, and in
+particular for:
+  * Pure complaints or venting that ask for nothing — complaining alone is not
+    seeking ("this is so slow, ugh").
+  * Watching the market, researching on behalf of someone else, hunting for
+    content ideas, surveys, or research requests — the author does not hold
+    the decision.
+  * Self-promotion of the author's own product — they are PITCHING it: sharing
+    a link, advertising it, asking for users or feedback on it, or hiring for
+    it. Merely mentioning that they build something is NOT promotion.
+  * Posts where the author is offering, selling, or hiring rather than looking.
   * Bug reports, error reports, crash logs, and support questions about a
     product the author already owns and wants to keep using.
-  * Academic, theoretical, conceptual, or study-method discussion where there is
-    nothing to buy ("how does spaced repetition work?").
+  * Academic, theoretical, conceptual, or study-method discussion where there
+    is nothing to acquire ("how does spaced repetition work?").
   * Career, job, internship, residency, med-school, or admissions consulting
     questions. These are extremely common in r/medicalschool: the person wants
     advice, not a product.
-  * Meta discussion about Reddit itself, surveys, and research requests.
-  * Posts where the author is offering, selling, or hiring rather than looking.
-  * Self-promotion of a product in the exact category being monitored — that is
-    a competitor, not a buyer. A founder promoting an UNRELATED product can
-    still be a buyer.
+  * Meta discussion about Reddit itself.
 
 Additional rules:
   * Do NOT reject merely because the author is a founder, builder, or is doing
-    market research. The line is whether they are deciding a purchase for
-    themselves or researching on behalf of the product they sell. Asking "do
-    you use a tool for it, or roll your own?" is a purchase decision even from
-    a builder; asking others what they think of a market is research.
+    market research. The line is whether THEY hold the purchase decision:
+    asking "do you use a tool for it, or roll your own?" is their own
+    buy-vs-build decision even when they have already started building, and
+    even if the thing they might build is in the monitored category. Asking
+    others what the market wants is research.
   * A question mark, urgency, or exclamation marks are NOT evidence of intent.
   * Asking a community for opinions is only intent if the opinion being asked
-    for is "which product should I buy/use".
+    for is "which thing should I get/use".
   * If you are unsure, answer false. Precision matters more than recall here.
 
 Reply with ONE JSON object and nothing else — no markdown, no prose:

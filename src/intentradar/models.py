@@ -30,12 +30,16 @@ JUDGE_VERSION_LLM = "v3.1.0+llm"
 LAYER_RULE_V4 = "rule_v4"
 JUDGE_VERSION_V4 = "v4.0.0"
 LAYER_RULE_V4_LLM = "rule_v4+llm"
-# v4.2.0+llm: the judgment criteria in SYSTEM_PROMPT were re-cut after the
-# reviewer adjudicated bootstrap (a post naming no product at all — "creative
-# ways to find customers" — is not actionable; a first-person buy-vs-build
-# question is). The prompt IS the rule, so the version moves with it: the same
-# version string must never mean two different criteria.
-JUDGE_VERSION_V4_LLM = "v4.2.0+llm"
+# v4.2.0+llm: re-cut criteria. BUG — added a "must name a specific product"
+# constraint that meta.json's `label_judgement_standard` explicitly forbids
+# ("naming the CATEGORY is enough"), and rejected "ways/methods" outright.
+# Recalled; do not quote its numbers as anything but the bug's cost.
+# v4.3.0+llm: implements the authoritative standard — three conditions
+# (category explicit / unmet and actively seeking / author's own decision) with
+# CATEGORY enumerated as product, service, way-or-solution, or capability.
+# The prompt IS the rule, so the version moves with it: the same version string
+# must never mean two different criteria.
+JUDGE_VERSION_V4_LLM = "v4.3.0+llm"
 
 
 class Signal(StrEnum):

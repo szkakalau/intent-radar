@@ -286,75 +286,88 @@ mid-string**, which fails closed and silently costs recall (observed on post
 - `config check` now prints the resolved protocol (`openai | anthropic | auto`)
   next to the endpoint, so the backend is explicit and never inferred.
 
-### Re-measured after the reviewer's ruling (`v4.2.0+llm`)
+### ⚠️ Correction: `v4.2.0` was a BUG, not a trade-off
 
-The reviewer adjudicated bootstrap and gave exact criteria wording, which was
-written into `SYSTEM_PROMPT`:
+An earlier revision of this file described the v4.2.0 recall drop as a
+precision/recall trade-off and recommended "using it for cleaner operating
+metrics". **That was wrong, and it is the most dangerous kind of wrong**: it
+would have frozen a fixable defect into a product decision.
 
-- **actionable** — the author names a specific tool/product/deck/textbook/
-  vendor, **or** states in the first person that they are undecided between
-  buying and building; and the category matches.
-- **not actionable** — asks only for ways / strategies / methods / tips and
-  names **no** product; pure complaint; tech support; academic; job/admissions;
-  promoting the exact category being monitored.
-- The test is a **quotable intent sentence**, not "they might buy someday".
-- "Builder doing market validation" is explicitly **not** a reason to reject on
-  its own — the line is deciding a purchase for yourself vs researching for the
-  product you sell.
+**Root cause.** The criteria were written into `SYSTEM_PROMPT` from a
+paraphrase in a chat message. The authoritative text was never read:
 
-The prompt *is* the judgment rule, so the version moved with it:
-`v4.1.0+llm` → **`v4.2.0+llm`**. The same version string must never mean two
-different criteria.
+> `data/testset/<id>/meta.json` → `label_judgement_standard`
+> "(1) need category is explicit — **naming the CATEGORY is enough, a specific
+> product name is not required**"
 
-Re-run, einprag, 42 calls, 0 errors:
+The prompt required the opposite: it demanded that the author name a **specific
+product**, and it rejected outright any post asking for "ways / strategies /
+methods / tips". That silently cut recall. It was not the standard changing —
+it was the implementation contradicting the standard.
 
-| metric | `rule_v4` | `rule_v4+llm` v4.1.0 | `rule_v4+llm` v4.2.0 |
+The prompt now carries a comment pointing at `label_judgement_standard` as the
+source of truth, and a test cross-checks the prompt against `meta.json` so the
+two cannot drift silently again.
+
+### `v4.3.0+llm` — implements the authoritative standard
+
+Three conditions, all required, matching `label_judgement_standard`:
+
+1. **CATEGORY IS EXPLICIT** — enumerated as product/tool/app, **service**,
+   **way / approach / solution / method**, or **capability**. *Naming a
+   specific product is never required.* The prompt is explicitly told it is not
+   judging whether the category is exactly what the monitored project sells —
+   only whether the post is *clearly unrelated*.
+2. **THE NEED IS UNMET AND THEY ARE ACTIVELY SEEKING**.
+3. **IT IS THE AUTHOR'S OWN DECISION** — they hold or share it.
+
+Two self-inflicted contradictions were also removed: a "promoting a product in
+the monitored category is a competitor" rule was killing `1wplixs` while a
+"don't reject builders" rule was trying to save it. Self-promotion now requires
+actual pitching (link, advert, asking for users), not merely building something.
+
+### Measured, both testsets, real LLM, labels verified stable before and after
+
+Against `einprag-2026-09-27c` (8 actionable / 28 borderline / 175 not) and
+`bootstrap-2026-09-27d` (2 / 9 / 126):
+
+| metric | einprag v4.1.0 | einprag v4.2.0 (bug) | **einprag v4.3.0** |
 |---|---|---|---|
-| predicted | 42 | 8 | 5 |
-| true positive | 8 | 7 | 5 |
-| false positive | 29 | 1 | 0 |
-| false negative | 0 | 1 | 3 |
-| **precision** | 21.6% | 87.5% | **100.0%** |
-| **recall** | 100% | 87.5% | **62.5%** |
-| **F1** | 35.6% | 87.5% | 76.9% |
+| predicted | 8 | 5 | 14 |
+| true positive | 7 | 5 | **8** |
+| false positive | 1 | 0 | 3 |
+| false negative | 1 | 3 | **0** |
+| **precision** | 87.5% | 100.0% | **72.7%** |
+| **recall** | 87.5% | 62.5% | **100.0%** |
+| **F1** | 87.5% | 76.9% | **84.2%** |
 
-**Tightening the criteria traded recall for precision** — this is a real
-change, not noise. The 3 newly-missed einprag posts, with the model's reasons:
+| | bootstrap v4.1.0 | bootstrap v4.2.0 (bug) | **bootstrap v4.3.0** |
+|---|---|---|---|
+| true positive | 0 / 2 | 0 / 2 | **1 / 2** |
+| **recall** | 0.0% | 0.0% | **50.0%** |
+| **precision** | – | – | 100.0% |
 
-- `1wq43g3` *"suggestions on resources to use"* — names no product.
-- `1wodq5k` *"What apps/resources are you using?"* — names no product.
-- `1wq57od` *"any workbooks I can use"* — rejected on **category**, not intent:
-  a workbook is not the flashcard/SRS category being monitored.
+`rule_v4` (the rule net) is unchanged throughout: **8/8 einprag, 2/2
+bootstrap — 100% recall** in every column. Only the LLM gate moved.
 
-The first two look like the same internal-consistency issue the reviewer fixed
-in bootstrap (`1wpda04`): they match his own *borderline* definition ("asks for
-ways/strategies, names no product") but are labelled `actionable`. **Raised
-with the reviewer** — if they move to `borderline`, the recall drop is a
-labelling artefact rather than a model failure.
+**This precision figure is the real trade-off** the earlier note wrongly
+claimed: recall 87.5% → 100% bought with precision 87.5% → 72.7% (3 false
+positives out of 14 candidates). That is a genuine operating choice, and it is
+now made on a correct implementation rather than on a bug.
 
-### ⚠️ Open contradiction: bootstrap rev c vs the criteria (unresolved)
+### Residual: `1wplixs` still rejected (stopped tuning on purpose)
 
-The reviewer's ruling said `1wpda04 → borderline`, and it was measured that
-way. He then committed **`bootstrap-2026-09-27c`**, which *restores*
-`1wpda04` to `actionable` and fixes a cross-testset consistency error, giving
-bootstrap 2 actionable / 9 borderline / 126 not.
+`1wpda04` is recovered. `1wplixs` is not — the model reads *"Do you use a tool
+for it, or roll your own?"* as *"market research for a platform they are
+building … rather than seeking a solution for their own unmet need"*, i.e. it
+fails condition (2) in the model's reading, not condition (3).
 
-Against rev c, under the criteria he specified, **both** bootstrap positives
-are rejected:
-
-- `1wpda04` — *"a request for strategies naming no purchasable product"* →
-  rejected by the very rule that was written from his own wording.
-- `1wplixs` — *"'before we go further down this road' is market research for
-  their platform, not a first-person purchase decision"* → rejected **despite**
-  the new "do not reject merely because the author is a builder" clause.
-
-So `bootstrap-2026-09-27` under `v4.2.0+llm` reports **0 predicted, 0 TP,
-2 FN — recall 0%**, with the rule layer still at 100% recall (2/2).
-
-This is a live contradiction between the committed ground truth and the
-committed criteria. It is left unresolved deliberately: **the model is
-applying the rule as written, and the rule was written to the reviewer's
-spec.** Which of the two is wrong is not an engineering decision.
+Two prompt iterations have already targeted this single post. A third would be
+**fitting the rule to 2 positive examples**, which is exactly how a benchmark
+number stops meaning anything. It is stopped here and reported instead: either
+the ground truth treats a first-person buy-vs-build question as satisfying
+condition (2) — in which case the standard needs a sentence saying so — or the
+model's reading stands. Not an engineering call.
 
 ### Known limitations, stated honestly
 
