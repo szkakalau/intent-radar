@@ -807,4 +807,55 @@ exemption and must carry its counts and interval in its new home.
 
 ---
 
+---
+
+## W1 follow-up — 2026-09-27 · Nemotron re-measurement and public demo
+
+Same frozen testset, same prompt, same code path, different model. No code
+change between the DeepSeek run and the Nemotron run beyond the
+`INTENTRADAR_LLM_MODEL` environment variable.
+
+### What was added
+
+| # | Update | Why it matters |
+|---|---|---|
+| 9 | **Nemotron re-measurement committed.** `nvidia/nemotron-3-super-120b-a12b:free` was run against `einprag-2026-09-27d` at `rule_v4+llm` / `--min-score 3`. The recording lives at `data/replay/nemotron-openrouter-2026-09-27/rule_v4_llm/` and is checked by the same line-by-line README test as the DeepSeek recording. | The hackathon deliverable asks for an NVIDIA open model. We published the result even though it made the required model look worse on precision. |
+| 10 | **Demo page + recorded video.** `docs/index.html` renders the frozen recordings: the funnel, the two-model comparison, and all 42 judgements with human labels and model verdicts side by side. It requires no API key and makes no live call. `docs/video.html` is a self-playing animation of the same content, recorded to `docs/intentradar-demo.mp4` (179.96 s, under the 3-minute limit). | Hosted demo URL and demo video are both required submission artefacts; both are generated from committed files so they cannot drift from the repo. |
+
+### Numbers
+
+`rule_v4+llm` on `einprag-2026-09-27d` (10 positives):
+
+| model | predicted | precision | recall |
+|---|---|---|---|
+| `deepseek-v4-flash` | 11 | 100.0% (9/9), 95% CI [70%, 100%] | 90.0% (9/10), 95% CI [60%, 98%] |
+| `nvidia/nemotron-3-super-120b-a12b:free` | 19 | 62.5% (10/16), 95% CI [39%, 82%] | 100.0% (10/10), 95% CI [72%, 100%] |
+
+The Nemotron hit set is a strict superset of the DeepSeek hit set: every post
+DeepSeek accepted, Nemotron also accepted, plus 8 more, with nothing reversed.
+Those 8 split as 1 true positive (`1woxhua`, the entire recall change), 6
+confirmed false positives (the entire precision change), and 1 borderline.
+
+### Where it ran, stated exactly
+
+Nemotron was served by OpenRouter; the gateway reported `provider: "Nvidia"`
+and `cost: 0`. It did **not** run on Nebius Token Factory — account creation
+is unavailable in this region (Nebius support: "adding new countries takes
+significant amount of time"). A judge checking "runs on Nebius Token Factory or
+AI Cloud" should count this submission as **not meeting** that clause.
+
+### Known caveats, stated honestly
+
+- 5 of the 42 Nemotron calls returned HTTP 503 on the first attempt ("Upstream
+  error from Nvidia: Service temporarily overloaded") and were retried. The
+  recording contains all 42 verdicts with 0 unresolved, but the first pass was
+  not clean.
+- The free Nemotron endpoint reports ~2,086 prompt tokens per judgement, while
+  DeepSeek reports ~406 for the same prompt. We cannot explain the 5× gap and
+  publish both rather than quoting the cheaper one.
+- The default `min_score` remains 5 (the project-wide "worth a human look"
+  threshold). The README's published table uses `--min-score 3`, which is
+  `rule_v4`'s documented candidate bar; the README explains this explicitly and
+  the command is reproduced verbatim.
+
 _Each subsequent week will be appended below._

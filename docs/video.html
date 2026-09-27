@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>IntentRadar — demo (3:00)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --ink:#e6edf3;
+    --muted:#8b949e; --teal:#3fb950; --amber:#d29922; --grey:#6e7681;
+    --accent:#58a6ff; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1280px;height:720px;overflow:hidden;background:var(--bg)}
+  body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;color:var(--ink)}
+  #stage{position:relative;width:1280px;height:720px}
+  .scene{position:absolute;inset:0;padding:56px 72px;opacity:0;pointer-events:none;
+    display:flex;flex-direction:column;justify-content:center}
+  .scene.on{opacity:1}
+  .fade{animation:fade .45s ease both}
+  @keyframes fade{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .kicker{font:12px/1 var(--mono);letter-spacing:.18em;color:var(--accent);
+    text-transform:uppercase;margin-bottom:22px}
+  h1{font-size:52px;line-height:1.15;font-weight:600;letter-spacing:-.02em;margin-bottom:20px}
+  h2{font-size:34px;line-height:1.25;font-weight:600;margin-bottom:18px;letter-spacing:-.01em}
+  p{font-size:19px;color:var(--muted);max-width:74ch}
+  p.ink{color:var(--ink)}
+  .term{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:22px 26px;font:14px/1.75 var(--mono);margin:20px 0;white-space:pre;overflow:hidden}
+  .prompt{color:var(--accent)} .out{color:var(--muted)} .val{color:var(--ink)}
+  .good{color:var(--teal)} .bad{color:var(--amber)}
+  table{border-collapse:collapse;font:15px/1 var(--mono);margin:14px 0}
+  th,td{text-align:left;padding:11px 20px 11px 0;border-bottom:1px solid var(--line)}
+  th{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);font-weight:600}
+  .ci{font-size:12px;color:var(--grey)}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:26px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--grey);
+    border-radius:10px;padding:20px 22px}
+  .card.g{border-left-color:var(--teal)} .card.a{border-left-color:var(--amber)}
+  .card .big{font:600 40px/1 var(--mono);display:block;margin-bottom:10px}
+  .card.g .big{color:var(--teal)} .card.a .big{color:var(--amber)}
+  .card p{font-size:14px;color:var(--muted);max-width:none}
+  ul{list-style:none;margin:18px 0} li{font-size:18px;color:var(--muted);margin:11px 0;padding-left:26px;position:relative}
+  li::before{content:"—";position:absolute;left:0;color:var(--grey)}
+  .big-url{font:22px/1 var(--mono);color:var(--accent);margin-top:14px}
+  .note{margin-top:26px;font-size:14px;color:var(--grey);font-family:var(--mono)}
+  .cursor{display:inline-block;width:9px;height:17px;background:var(--accent);
+    vertical-align:-3px;animation:blink 1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <section class="scene" data-ms="17000">
+    <div class="kicker">Nebius × NVIDIA hackathon · demo</div>
+    <h1>IntentRadar</h1>
+    <p class="ink" style="font-size:24px">Finds people on Reddit who are asking for what you sell
+    — and publishes how often it is wrong.</p>
+    <p style="margin-top:26px">Every number in this video can be recomputed by a stranger,
+    offline, without an API key. That is the whole point.</p>
+  </section>
+
+  <section class="scene" data-ms="33000">
+    <div class="kicker">01 — the claim, and how to check it</div>
+    <h2>Two commands. No key. No network.</h2>
+    <div class="term"><span class="prompt">$</span> <span id="t1"></span><span class="cursor"></span><span id="o1"></span></div>
+    <p style="font-size:17px">The second one is the same frozen test set through a second model.
+    Both print a banner saying <span class="val">REPLAYED</span> — so a screenshot carries its own provenance.</p>
+  </section>
+
+  <section class="scene" data-ms="38000">
+    <div class="kicker">02 — the funnel</div>
+    <h2>A cheap greedy net, then one expensive careful gate</h2>
+    <table>
+      <tr><th>Stage</th><th>Candidates</th><th>Precision</th><th>Recall</th></tr>
+      <tr><td>rule_v4 — wide net</td><td class="val">42</td>
+          <td>26.3% (10/38)<div class="ci">CI [15%, 42%]</div></td>
+          <td>100.0% (10/10)<div class="ci">CI [72%, 100%]</div></td></tr>
+      <tr><td>+ DeepSeek gate</td><td class="val">11</td>
+          <td class="good">100.0% (9/9)<div class="ci">CI [70%, 100%]</div></td>
+          <td>90.0% (9/10)<div class="ci">CI [60%, 98%]</div></td></tr>
+      <tr><td>+ Nemotron gate</td><td class="val">19</td>
+          <td class="bad">62.5% (10/16)<div class="ci">CI [39%, 82%]</div></td>
+          <td class="good">100.0% (10/10)<div class="ci">CI [72%, 100%]</div></td></tr>
+    </table>
+    <p style="font-size:17px;margin-top:8px">The net is allowed to be sloppy — it costs nothing.
+    Only the gate has to be right.</p>
+  </section>
+
+  <section class="scene" data-ms="40000">
+    <div class="kicker">03 — what we did not expect</div>
+    <h2>The second model is a strict superset, not a contradiction</h2>
+    <p style="margin-bottom:6px">Nemotron accepted every post DeepSeek accepted, and 8 more.
+    <span class="val">Nothing was reversed.</span></p>
+    <div class="cards">
+      <div class="card g"><span class="big">1</span>
+        <p>is <span class="val">1woxhua</span> — the one real buyer the stricter model missed.
+        The entire reason recall goes 90% → 100%.</p></div>
+      <div class="card a"><span class="big">6</span>
+        <p>are confirmed false positives.
+        The entire reason precision goes 100% → 62.5%.</p></div>
+      <div class="card"><span class="big">1</span>
+        <p>is <span class="val">borderline</span> — a human could not rule it,
+        so it is excluded, not counted as a miss.</p></div>
+    </div>
+    <p style="font-size:17px">Not two models disagreeing about which posts are actionable —
+    one model reaching further, and a visible price for the extra reach.</p>
+  </section>
+
+  <section class="scene" data-ms="33000">
+    <div class="kicker">04 — the fine print</div>
+    <h2>What this does not claim</h2>
+    <ul>
+      <li><span class="val">n = 10.</span> Ten real buyers. That is why every figure carries a 95% interval.</li>
+      <li><span class="val">One product, five subreddits.</span> Nothing here generalises on its own.</li>
+      <li><span class="val">It did not run on Nebius.</span> OpenRouter served it; the gateway reported
+        provider "Nvidia". We fail that clause of the rules and say so.</li>
+      <li><span class="val">9 of 91 judgements hit a 503</span> on the first attempt and were retried.
+        Zero unresolved — but the first pass was not clean.</li>
+    </ul>
+  </section>
+
+  <section class="scene" data-ms="16000">
+    <div class="kicker">05 — check it yourself</div>
+    <h2>github.com/szkakalau/intent-radar</h2>
+    <div class="big-url">git clone https://github.com/szkakalau/intent-radar</div>
+    <p style="margin-top:24px;font-size:18px">MIT licensed. 348 hand-labelled posts.
+    The public dashboard renders the same frozen files — no key, no server.</p>
+    <div class="note">Every figure in this video is regenerated by the committed test suite.
+    If the arithmetic drifts, the suite goes red.</div>
+  </section>
+
+</div>
+
+<script>
+const scenes = [...document.querySelectorAll('.scene')];
+let i = 0;
+
+/* cps = characters per second at 60fps. */
+function typeInto(el, text, cps, done){
+  el.textContent = '';
+  const perFrame = Math.max(1, cps / 60);
+  let n = 0;
+  const step = () => {
+    n = Math.min(text.length, n + perFrame);
+    el.textContent = text.slice(0, Math.floor(n));
+    if (n < text.length) requestAnimationFrame(step); else done && done();
+  };
+  requestAnimationFrame(step);
+}
+
+function show(idx){
+  scenes.forEach((s, k) => {
+    s.classList.toggle('on', k === idx);
+    [...s.children].forEach((c, ci) => {
+      c.classList.remove('fade');
+      if (k === idx) { void c.offsetWidth; c.style.animationDelay = (ci * 110) + 'ms'; c.classList.add('fade'); }
+    });
+  });
+  if (idx === 1){
+    const t = document.getElementById('t1');
+    typeInto(t, 'uv run intentradar eval score --testset einprag-2026-09-27 \\', 45, () => {
+      setTimeout(() => {
+        document.getElementById('o1').innerHTML =
+          '\n      --layers rule_v4,rule_v4+llm --min-score 3 \\\n' +
+          '      --replay data/replay/nemotron-openrouter-2026-09-27/rule_v4_llm\n\n' +
+          '<span class="out">REPLAYED — frozen model responses, model=nvidia/nemotron-3-super-120b-a12b:free.\n' +
+          'predicted 19 · precision 62.5% (10/16) · recall 100.0% (10/10)</span>';
+      }, 380);
+    });
+  }
+}
+
+function next(){
+  if (i >= scenes.length) return;
+  show(i);
+  const ms = Number(scenes[i].dataset.ms);
+  i += 1;
+  setTimeout(next, ms);
+}
+next();
+</script>
+</body>
+</html>
