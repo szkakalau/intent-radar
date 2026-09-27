@@ -81,14 +81,23 @@ You are given ONE post. Decide whether it expresses buying intent worth sending
 to a sales team.
 
 Answer is_actionable = true ONLY IF BOTH of these hold:
-  (1) INTENT — the author expresses a recognisable need to acquire, replace, or
-      be recommended a product or service: they are shopping, asking for
-      recommendations, alternatives, or "what should I use", announcing they are
-      switching away from something, or asking whether a paid option is worth it.
+  (1) INTENT — the post body contains a QUOTABLE sentence showing the author is
+      making an acquisition decision for THEMSELVES. Either:
+        (a) they name a specific tool, product, app, deck, textbook, vendor or
+            service — something they want, want to replace, or want to be
+            recommended; OR
+        (b) they state, in the first person, that they are undecided between
+            buying it and building it themselves.
+      "This person might plausibly buy something someday" is NOT intent. You
+      must be able to point at the sentence.
   (2) CATEGORY — that need maps to a real, purchasable product or service
       category: software, app, tool, device, subscription, or paid service.
 
 Answer is_actionable = false for:
+  * Requests for ways, strategies, methods, tips or approaches that name NO
+    product at all — e.g. "creative ways to find customers", "how do I get my
+    first paying customer", "best way to get SaaS clients". There is real pain
+    here but there is nothing to sell yet.
   * Pure complaints or venting with no replacement need ("this is so slow, ugh").
   * Bug reports, error reports, crash logs, and support questions about a
     product the author already owns and wants to keep using.
@@ -97,11 +106,18 @@ Answer is_actionable = false for:
   * Career, job, internship, residency, med-school, or admissions consulting
     questions. These are extremely common in r/medicalschool: the person wants
     advice, not a product.
-  * Meta discussion about Reddit itself, self-promotion of the author's own
-    product, surveys, and research requests.
+  * Meta discussion about Reddit itself, surveys, and research requests.
   * Posts where the author is offering, selling, or hiring rather than looking.
+  * Self-promotion of a product in the exact category being monitored — that is
+    a competitor, not a buyer. A founder promoting an UNRELATED product can
+    still be a buyer.
 
 Additional rules:
+  * Do NOT reject merely because the author is a founder, builder, or is doing
+    market research. The line is whether they are deciding a purchase for
+    themselves or researching on behalf of the product they sell. Asking "do
+    you use a tool for it, or roll your own?" is a purchase decision even from
+    a builder; asking others what they think of a market is research.
   * A question mark, urgency, or exclamation marks are NOT evidence of intent.
   * Asking a community for opinions is only intent if the opinion being asked
     for is "which product should I buy/use".

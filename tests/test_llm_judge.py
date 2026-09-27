@@ -95,6 +95,26 @@ def test_prompt_forbids_rewarding_style_over_substance() -> None:
     assert "question mark" in SYSTEM_PROMPT.lower()
 
 
+def test_prompt_carries_the_adjudicated_bootstrap_ruling() -> None:
+    """The reviewer's ruling is in the rule itself, not just in a changelog.
+
+    "Creative ways to find customers" names no product, so it is not actionable
+    even though the pain is real; a first-person buy-vs-build question is, even
+    when the asker is a founder. Both halves have to be in the prompt or the
+    measured numbers cannot be reproduced by anyone reading it.
+    """
+    for phrase in (
+        "QUOTABLE sentence",
+        "undecided between",
+        "buying it and building it themselves",
+        "ways, strategies, methods, tips",
+        "name NO",
+        "Do NOT reject merely because the author is a founder, builder",
+        "exact category being monitored",
+    ):
+        assert phrase in SYSTEM_PROMPT, phrase
+
+
 def test_user_prompt_is_deterministic(project: ProjectConfig) -> None:
     """Same post → same prompt, twice. No timestamps, no set iteration."""
     post = _post("Which flashcard app should I use?", "quizlet is expensive")

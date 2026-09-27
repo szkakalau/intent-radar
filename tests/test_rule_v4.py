@@ -24,7 +24,13 @@ from intentradar.judge.rule_v4 import (
     is_noise,
     score,
 )
-from intentradar.models import LAYER_RULE_V3, LAYER_RULE_V4, LAYER_RULE_V4_LLM, Post
+from intentradar.models import (
+    JUDGE_VERSION_V4_LLM,
+    LAYER_RULE_V3,
+    LAYER_RULE_V4,
+    LAYER_RULE_V4_LLM,
+    Post,
+)
 
 WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.json"
 
@@ -186,7 +192,7 @@ def test_composite_layer_is_v4_based() -> None:
     """`rule_v4+llm` must publish v4 numbers, never v3's."""
     judge = get_judge(LAYER_RULE_V4_LLM)
     assert judge.layer == LAYER_RULE_V4_LLM
-    assert judge.judge_version == "v4.1.0+llm"
+    assert judge.judge_version == JUDGE_VERSION_V4_LLM
     assert judge.rule.layer == LAYER_RULE_V4
 
 

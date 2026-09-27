@@ -286,6 +286,76 @@ mid-string**, which fails closed and silently costs recall (observed on post
 - `config check` now prints the resolved protocol (`openai | anthropic | auto`)
   next to the endpoint, so the backend is explicit and never inferred.
 
+### Re-measured after the reviewer's ruling (`v4.2.0+llm`)
+
+The reviewer adjudicated bootstrap and gave exact criteria wording, which was
+written into `SYSTEM_PROMPT`:
+
+- **actionable** — the author names a specific tool/product/deck/textbook/
+  vendor, **or** states in the first person that they are undecided between
+  buying and building; and the category matches.
+- **not actionable** — asks only for ways / strategies / methods / tips and
+  names **no** product; pure complaint; tech support; academic; job/admissions;
+  promoting the exact category being monitored.
+- The test is a **quotable intent sentence**, not "they might buy someday".
+- "Builder doing market validation" is explicitly **not** a reason to reject on
+  its own — the line is deciding a purchase for yourself vs researching for the
+  product you sell.
+
+The prompt *is* the judgment rule, so the version moved with it:
+`v4.1.0+llm` → **`v4.2.0+llm`**. The same version string must never mean two
+different criteria.
+
+Re-run, einprag, 42 calls, 0 errors:
+
+| metric | `rule_v4` | `rule_v4+llm` v4.1.0 | `rule_v4+llm` v4.2.0 |
+|---|---|---|---|
+| predicted | 42 | 8 | 5 |
+| true positive | 8 | 7 | 5 |
+| false positive | 29 | 1 | 0 |
+| false negative | 0 | 1 | 3 |
+| **precision** | 21.6% | 87.5% | **100.0%** |
+| **recall** | 100% | 87.5% | **62.5%** |
+| **F1** | 35.6% | 87.5% | 76.9% |
+
+**Tightening the criteria traded recall for precision** — this is a real
+change, not noise. The 3 newly-missed einprag posts, with the model's reasons:
+
+- `1wq43g3` *"suggestions on resources to use"* — names no product.
+- `1wodq5k` *"What apps/resources are you using?"* — names no product.
+- `1wq57od` *"any workbooks I can use"* — rejected on **category**, not intent:
+  a workbook is not the flashcard/SRS category being monitored.
+
+The first two look like the same internal-consistency issue the reviewer fixed
+in bootstrap (`1wpda04`): they match his own *borderline* definition ("asks for
+ways/strategies, names no product") but are labelled `actionable`. **Raised
+with the reviewer** — if they move to `borderline`, the recall drop is a
+labelling artefact rather than a model failure.
+
+### ⚠️ Open contradiction: bootstrap rev c vs the criteria (unresolved)
+
+The reviewer's ruling said `1wpda04 → borderline`, and it was measured that
+way. He then committed **`bootstrap-2026-09-27c`**, which *restores*
+`1wpda04` to `actionable` and fixes a cross-testset consistency error, giving
+bootstrap 2 actionable / 9 borderline / 126 not.
+
+Against rev c, under the criteria he specified, **both** bootstrap positives
+are rejected:
+
+- `1wpda04` — *"a request for strategies naming no purchasable product"* →
+  rejected by the very rule that was written from his own wording.
+- `1wplixs` — *"'before we go further down this road' is market research for
+  their platform, not a first-person purchase decision"* → rejected **despite**
+  the new "do not reject merely because the author is a builder" clause.
+
+So `bootstrap-2026-09-27` under `v4.2.0+llm` reports **0 predicted, 0 TP,
+2 FN — recall 0%**, with the rule layer still at 100% recall (2/2).
+
+This is a live contradiction between the committed ground truth and the
+committed criteria. It is left unresolved deliberately: **the model is
+applying the rule as written, and the rule was written to the reviewer's
+spec.** Which of the two is wrong is not an engineering decision.
+
 ### Known limitations, stated honestly
 
 - **The headline numbers are still not Nemotron's.** They come from a local
@@ -294,8 +364,13 @@ mid-string**, which fails closed and silently costs recall (observed on post
 - `rule_v3` remains the **default** pipeline layer, so the published 0% is
   still what ships unless v4 is explicitly selected. Promoting v4 to default
   is a separate decision.
-- Bootstrap's ground truth is 2 actionable rows — too small for the 0/2 LLM
-  result to be more than a signal that the criteria need a ruling.
+- **Bootstrap's denominator is n=2.** Precision/recall on n=2 is noise: one
+  sample flipping is a 50-point swing. The reviewer recommends **not**
+  publishing a rate for it and reporting instead a **density + negative-control
+  conclusion** — e.g. r/SaaS + r/microsaas + r/Entrepreneur total 107 posts
+  with 0 actionable, 1/137 = 0.7% overall, i.e. general-founder subreddits are
+  the wrong target for intent monitoring. That is both publishable and more
+  honest than an n=2 ratio. Whether to grow the sample is the team lead's call.
 - The LLM response cache stores failures as well as successes, so a transient
   parse failure sticks until the cache is cleared.
 
