@@ -649,7 +649,144 @@ class ScoreReport:
                 f"({self.labels.unlabeled} unlabeled + {self.labels.borderline} borderline); "
                 f"they are excluded from every ratio above, not counted as 0."
             )
+        # Never show a rate on a handful of positives without saying what it is:
+        # one relabel moves it by tens of points, which invites reading noise as
+        # signal. `eval density` is the honest view for such a testset.
+        if self.labels.positives < SMALL_SAMPLE_POSITIVES:
+            n = self.labels.positives
+            lines.append(
+                f"!! only {n} positive(s) in the ground truth — a precision/recall figure"
+            )
+            lines.append(
+                f"   here moves by {(1 / n) * 100:.0f} points per relabelled row and is noise."
+                if n
+                else "   here has no positives at all and is not a rate."
+            )
+            lines.append(
+                f"   run `intentradar eval density --testset {self.testset_id}` instead."
+            )
         return "\n".join(lines)
+
+
+# Below this many positives, a precision/recall figure is noise: one sample
+# flipping is a huge swing. Report density and a negative-control conclusion
+# instead — the reviewer's recommendation, adopted.
+SMALL_SAMPLE_POSITIVES = 10
+
+
+@dataclass
+class DensityRow:
+    """One subreddit's ground-truth density."""
+
+    sub: str
+    posts: int = 0
+    actionable: int = 0
+    borderline: int = 0
+    not_actionable: int = 0
+    unreviewed: int = 0
+
+    @property
+    def density(self) -> float:
+        """Actionable posts per post in this subreddit, 0.0 when empty."""
+        return self.actionable / self.posts if self.posts else 0.0
+
+
+@dataclass
+class DensityReport:
+    """Per-subreddit ground-truth density — the honest way to read a tiny set."""
+
+    testset_id: str
+    project: str
+    rows: list[DensityRow]
+    label_version: str = ""
+    label_sha256: str = ""
+
+    @property
+    def total_posts(self) -> int:
+        return sum(r.posts for r in self.rows)
+
+    @property
+    def total_actionable(self) -> int:
+        return sum(r.actionable for r in self.rows)
+
+    def render(self) -> str:
+        """Table plus the negative-control conclusion, no precision/recall."""
+        sep = "─" * 62
+        lines = [
+            f"testset : {self.testset_id}   project: {self.project}",
+            f"truth   : {self.label_version or '(unversioned)'}  "
+            f"labels.csv sha256={self.label_sha256[:12] if self.label_sha256 else '-'}",
+            sep,
+            f"{'sub':<18}{'posts':>7}{'actionable':>12}{'borderline':>12}"
+            f"{'unreviewed':>12}{'density':>10}",
+        ]
+        for row in sorted(self.rows, key=lambda r: (-r.density, -r.posts, r.sub)):
+            lines.append(
+                f"{row.sub:<18}{row.posts:>7}{row.actionable:>12}{row.borderline:>12}"
+                f"{row.unreviewed:>12}{row.density * 100:>9.1f}%"
+            )
+        lines.append(sep)
+        total = self.total_posts
+        lines.append(
+            f"{'TOTAL':<18}{total:>7}{self.total_actionable:>12}"
+            f"{sum(r.borderline for r in self.rows):>12}"
+            f"{sum(r.unreviewed for r in self.rows):>12}"
+            f"{(self.total_actionable / total if total else 0.0) * 100:>9.1f}%"
+        )
+        lines.append("")
+        if self.total_actionable == 0:
+            lines.append(
+                "No actionable posts anywhere in this testset. As an intent-monitoring"
+            )
+            lines.append("target its density is zero — that is the finding, and it is")
+            lines.append("stronger than any rate computed on 0 positives.")
+        elif self.total_actionable < SMALL_SAMPLE_POSITIVES:
+            lines.append(
+                f"Only {self.total_actionable} actionable post(s) in {total}. A precision /"
+            )
+            lines.append(
+                "recall figure on this few positives is noise — one sample flipping"
+            )
+            lines.append(
+                f"moves it by {(1 / self.total_actionable) * 100:.0f} points. Read the density"
+            )
+            lines.append("above instead, and name the subreddits that produced nothing.")
+        empty = [r.sub for r in self.rows if r.posts and r.actionable == 0]
+        if empty:
+            lines.append("")
+            lines.append(f"Zero-actionable subreddits: {', '.join(sorted(empty))}")
+        return "\n".join(lines)
+
+
+def subreddit_density(dataset: EvalDataset) -> DensityReport:
+    """Ground-truth density per subreddit — no model involved, no threshold."""
+    labels = dataset.load_labels()
+    posts = [p for p in dataset.in_window() if p.id]
+    # LabelSet.labels only holds DECIDED rows (bool); borderline and blank live
+    # in their own lists. Reading the raw CSV here would be the same mistake as
+    # scoring an undecided row as 0.
+    borderline = set(labels.borderline_ids)
+    blank = set(labels.blank_ids)
+    rows: dict[str, DensityRow] = {}
+    for post in posts:
+        row = rows.setdefault(post.sub or "(unknown)", DensityRow(sub=post.sub or "(unknown)"))
+        row.posts += 1
+        if post.id in borderline:
+            row.borderline += 1
+        elif post.id in blank:
+            row.unreviewed += 1
+        elif labels.labels.get(post.id) is True:
+            row.actionable += 1
+        else:
+            row.not_actionable += 1
+    version, digest = label_fingerprint(dataset.base_dir)
+    return DensityReport(
+        testset_id=dataset.testset_id,
+        project=str(dataset.meta.get("project", "")),
+        rows=list(rows.values()),
+        label_version=version,
+        label_sha256=digest,
+    )
 
 
 def label_fingerprint(base_dir: Path) -> tuple[str, str]:

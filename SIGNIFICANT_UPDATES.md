@@ -408,6 +408,55 @@ collides with `1wqq5om`, which contains an explicit selection question
 add a false positive. **Flagged before the rule is written into the standard**,
 not after.
 
+### `eval density` — the honest view of a small testset
+
+`eval score` now refuses to present a rate on a handful of positives without
+saying what it is, and `eval density` gives the alternative:
+
+```
+sub                 posts  actionable  borderline  unreviewed   density
+indiehackers            7           1           0           0     14.3%
+startups               23           1           1           0      4.3%
+SaaS                   48           0           5           0      0.0%
+microsaas              48           0           3           0      0.0%
+Entrepreneur           11           0           0           0      0.0%
+──────────────────────────────────────────────────────────────────────────
+TOTAL                 137           2           9           0      1.5%
+
+Only 2 actionable post(s) in 137. A precision / recall figure on this few
+positives is noise — one sample flipping moves it by 50 points.
+
+Zero-actionable subreddits: Entrepreneur, SaaS, microsaas
+```
+
+The negative-control conclusion — **general-founder subreddits (107 posts)
+produced 0 actionable** — is a publishable finding; a rate on n=2 is not.
+Borderline and unreviewed rows are counted in their own columns, never folded
+into `not_actionable`.
+
+### ⚠️ Pending ground-truth changes, and the metric jump they will cause
+
+Adjudicated but **not yet committed** (labels.csv is still rev c / rev d; sha256
+verified unchanged):
+
+| id | from → to | why |
+|---|---|---|
+| `1wq1xms`, `1woxhua` | → actionable | reverse audit |
+| `1wqq5om` | not_actionable → **borderline** | names apps/tools, so the old "maker, not a customer" reason was invalid; still fails criterion (1) because distraction-blocking is outside the exam-prep domain |
+| `1wq5s03` | not_actionable → **borderline** | asks for a way "outside of an app", naming no purchasable category |
+| `1wq8u54` | stays not_actionable, **note rewritten** | "alternative algorithm" is outside the domain (criterion 1); the old note said "academic", which is not one of the three criteria |
+
+**Two of these are currently false positives, so this relabelling will move
+precision from 72.7% to roughly 88.9% with the model unchanged.** That jump is
+a **relabelling effect, not a model improvement**, and must never be reported
+as v4.4.0 being better. It is recorded here so the next changelog cannot
+claim it by accident.
+
+The reviewer also caught a private criterion of his own: "maker, not a
+customer" is not one of the three criteria — criterion (3) excludes
+*promoting* your product, not merely having built something. That correction
+is what moves `1wqq5om`.
+
 ### Known limitations, stated honestly
 
 - **The headline numbers are still not Nemotron's.** They come from a local

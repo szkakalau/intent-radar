@@ -22,7 +22,12 @@ from intentradar import __version__
 from intentradar.budget import BudgetGuard, RunGates
 from intentradar.config import Settings, Watchlist
 from intentradar.errors import IntentRadarError
-from intentradar.eval import EvalDataset, EvalRunner, EvalScorer
+from intentradar.eval import (
+    EvalDataset,
+    EvalRunner,
+    EvalScorer,
+    subreddit_density,
+)
 from intentradar.judge import AVAILABLE_LAYERS
 from intentradar.llm import build_client
 from intentradar.pipeline import Pipeline
@@ -89,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="comma-separated layers to compare (default: rule_v3,rule_v3+llm)",
     )
+
+    eval_density = eval_sub.add_parser(
+        "density",
+        help="per-subreddit ground-truth density (use this when positives are few)",
+    )
+    eval_density.add_argument("--testset", required=True)
 
     eval_snap = eval_sub.add_parser("snapshot", help="freeze a new testset from a live run")
     eval_snap.add_argument("--project", required=True)
@@ -290,6 +301,13 @@ def cmd_eval_score(args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK
 
 
+def cmd_eval_density(args: argparse.Namespace, settings: Settings) -> int:
+    """`intentradar eval density` — read a tiny testset without faking a rate."""
+    dataset = EvalDataset.load(args.testset, settings.testset_dir)
+    print(subreddit_density(dataset).render())
+    return EXIT_OK
+
+
 def cmd_eval_snapshot(args: argparse.Namespace, settings: Settings) -> int:
     """`intentradar eval snapshot` — freeze a new dataset from a live collection."""
     from intentradar.collect.scrapecreators import ScrapeCreatorsProvider
@@ -362,6 +380,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return cmd_eval_export(args, settings)
             if args.eval_command == "score":
                 return cmd_eval_score(args, settings)
+            if args.eval_command == "density":
+                return cmd_eval_density(args, settings)
             if args.eval_command == "snapshot":
                 return cmd_eval_snapshot(args, settings)
         if args.command == "budget":

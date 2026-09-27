@@ -13,10 +13,12 @@ from intentradar.config import ProjectConfig, Watchlist
 from intentradar.errors import ConfigError
 from intentradar.eval import (
     LABEL_COLUMNS,
+    SMALL_SAMPLE_POSITIVES,
     EvalDataset,
     EvalScorer,
     LabelSet,
     label_fingerprint,
+    subreddit_density,
 )
 from intentradar.judge import get_judge
 from intentradar.judge.llm import LLMJudge
@@ -338,6 +340,52 @@ def test_report_names_the_label_revision_it_was_measured_against(
     rendered = report.render()
     assert "truth   :" in rendered
     assert len(report.label_sha256) == 64
+
+
+def test_density_report_reads_a_tiny_testset_without_a_rate(
+    dataset: EvalDataset,
+) -> None:
+    """With few positives the honest view is density, not precision/recall."""
+    report = subreddit_density(dataset)
+    rendered = report.render()
+    assert "density" in rendered
+    assert report.total_posts > 0
+    assert report.total_actionable == report.total_actionable  # sanity, not a rate
+    for row in report.rows:
+        assert 0.0 <= row.density <= 1.0
+
+
+def test_density_flags_subreddits_that_produced_nothing() -> None:
+    """The negative-control conclusion is the publishable finding for bootstrap."""
+    dataset = EvalDataset.load("bootstrap-2026-09-27", REPO_ROOT / "data" / "testset")
+    report = subreddit_density(dataset)
+    rendered = report.render()
+    zero = {r.sub for r in report.rows if r.posts and r.actionable == 0}
+    assert zero, "expected at least one zero-density subreddit"
+    assert "Zero-actionable subreddits" in rendered
+    for sub in zero:
+        assert sub in rendered
+
+
+def test_density_does_not_count_borderline_as_negative() -> None:
+    """Undecided is not 'not actionable' — the same rule the scorer follows."""
+    dataset = EvalDataset.load("bootstrap-2026-09-27", REPO_ROOT / "data" / "testset")
+    labels = dataset.load_labels()
+    report = subreddit_density(dataset)
+    assert labels.borderline_ids, "fixture must contain borderline rows"
+    assert sum(r.borderline for r in report.rows) == len(labels.borderline_ids)
+    assert sum(r.unreviewed for r in report.rows) == len(labels.blank_ids)
+
+
+def test_score_warns_when_positives_are_too_few_for_a_rate(
+    dataset: EvalDataset, project: ProjectConfig
+) -> None:
+    """A rate on a handful of positives must not be presented bare."""
+    report = EvalScorer([get_judge(LAYER_RULE_V3)]).score(dataset, project=project)
+    rendered = report.render()
+    if report.labels.positives < SMALL_SAMPLE_POSITIVES:
+        assert "eval density" in rendered
+        assert "noise" in rendered
 
 
 def test_committed_testsets_declare_a_label_version() -> None:
