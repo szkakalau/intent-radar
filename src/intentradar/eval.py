@@ -98,7 +98,10 @@ class EvalReport:
             sep,
             f"{'posts in window':<24}{self.total}",
             f"{'hits over threshold':<24}{self.hit_count}",
-            f"{'hit rate':<24}{self.hit_rate_pct}%",
+            # Counts ride along with every rate: a bare percentage in our own
+            # output would exempt nothing, but it would license every bare
+            # percentage downstream that quotes it.
+            f"{'hit rate':<24}{self.hit_rate_pct}% ({self.hit_count}/{self.total})",
             "─",
             "noise rate = (# hits a human marks 'not actionable') / (# hits)",
         ]
@@ -132,7 +135,11 @@ class EvalReport:
             f"{'reviewed hits':<24}{len(decided)}/{self.hit_count}"
             f"   ({len(undecided)} undecided: borderline/blank)",
             f"{'noise rate':<24}"
-            + (f"{round(noise / len(decided) * 100, 1)}%" if decided else "-"),
+            + (
+                f"{round(noise / len(decided) * 100, 1)}% ({noise}/{len(decided)})"
+                if decided
+                else "-"
+            ),
             f"ground truth: {labels.labeled} labeled "
             f"({labels.positives} actionable / {labels.negatives} not) "
             f"· {labels.unlabeled} unlabeled · {labels.borderline} borderline",
@@ -700,7 +707,12 @@ class ScoreReport:
                 [_ci_cell(s.recall, s.tp, s.tp + s.fn) for s in self.scores],
             ),
             ("F1", [_pct(s.f1) for s in self.scores]),
-            ("noise rate", [_pct(s.noise_rate) for s in self.scores]),
+            # noise rate is 1 − precision over the same denominator, so it
+            # carries the same counts rather than a bare percentage.
+            (
+                "noise rate",
+                [_cell(s.noise_rate, s.fp, s.tp + s.fp) for s in self.scores],
+            ),
             ("unverified hits", [str(s.unverified) for s in self.scores]),
         ]
         for name, values in rows:

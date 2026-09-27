@@ -24,7 +24,10 @@ from conftest import REPO_ROOT
 
 README = REPO_ROOT / "README.md"
 
-_RATE_WORD = re.compile(r"\b(precision|recall|noise rate|noise|F1)\b", re.IGNORECASE)
+# "hit rate" is here because our own `eval run` prints one. The discipline has
+# to bind the tool's output too, or a compliant README is only typography on top
+# of a non-compliant report.
+_RATE_WORD = re.compile(r"\b(precision|recall|noise rate|noise|F1|hit rate)\b", re.IGNORECASE)
 _PERCENT = re.compile(r"\d+(?:\.\d+)?%")
 _COUNTS = re.compile(r"\(\d+\s*/\s*\d+\)")
 _INTERVAL = re.compile(r"95%\s*CI|\[\d+%,\s*\d+%\]")

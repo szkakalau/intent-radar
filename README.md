@@ -50,24 +50,22 @@ uv sync                     # or: pip install -e .
 cp .env.example .env        # then fill in SCRAPECREATORS_API_KEY
 
 # 3. run
-uv run intentradar config check
-uv run intentradar run --project Einprag
+uv run python -m intentradar config check
+uv run python -m intentradar run --project Einprag
 ```
 
-> **If `uv run intentradar` fails to spawn** (some locked-down environments
-> refuse to execute console scripts — Windows application-control policies
-> report `os error 4551`), use the module form, which needs no installed
-> launcher and behaves identically:
->
-> ```bash
-> uv run python -m intentradar config check
-> uv run python -m intentradar eval run --testset einprag-2026-09-27
-> ```
+> **Why the module form (`python -m intentradar`) and not the console script.**
+> On locked-down Windows environments `uv run intentradar` fails to spawn with
+> `os error 4551` (application-control policy) — we reproduced it on a clean
+> clone, and a red error on the very first command is a bad first impression of
+> a project whose entire claim is that a stranger can recompute its numbers.
+> The module form needs no installed launcher and behaves identically.
+> If your environment allows console scripts, `uv run intentradar …` also works.
 
 No API key? No problem for the evaluation path — it is fully offline:
 
 ```bash
-uv run intentradar eval run --testset einprag-2026-09-27
+uv run python -m intentradar eval run --testset einprag-2026-09-27
 ```
 
 ### Commands
@@ -105,11 +103,11 @@ judge   : rule_v3 (v3.0.0)
 ─────────────────────────────────────────────
 posts in window         211
 hits over threshold     6
-hit rate                2.8%
+hit rate                2.8% (6/211)
 ─
 noise rate = (# hits a human marks 'not actionable') / (# hits)
 reviewed hits           5/6   (1 undecided: borderline/blank)
-noise rate              80.0%
+noise rate              80.0% (4/5)
 ground truth: 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
 → full precision / recall: `eval score --testset einprag-2026-09-27`
 expected 6 hits: MATCH
@@ -192,26 +190,43 @@ project : Einprag   min_score=5
 labels  : 211 rows · 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
 ──────────────────────────────────────────────────────────────
 metric                      rule_v3 (v3.0.0)  rule_v3+llm (v3.1.0+llm)
-predicted                                  6                         1
-true positive                              1                         1
+predicted                                  6                         0
+true positive                              1                         0
 false positive                             4                         0
-false negative                             9                         9
-precision                       20.0%  (1/5)             100.0%  (1/1)
-precision 95% CI                   [4%, 62%]               [21%, 100%]
-recall                         10.0%  (1/10)             10.0%  (1/10)
-recall 95% CI                      [2%, 40%]                 [2%, 40%]
-F1                                     13.3%                     18.2%
-noise rate                             80.0%                      0.0%
+false negative                             9                        10
+precision                       20.0%  (1/5)                         -
+precision 95% CI                   [4%, 62%]                         -
+recall                         10.0%  (1/10)              0.0%  (0/10)
+recall 95% CI                      [2%, 40%]                 [0%, 28%]
+F1                                     13.3%                         -
+noise rate                      80.0%  (4/5)                         -
 unverified hits                            1                         0
 positives (n)                             10                        10
+──────────────────────────────────────────────────────────────
+llm: 0 calls · 0 errors · backend=MOCK (deterministic stand-in; NOT a measurement)
+  !! the semantic layer ran against the deterministic mock —
+     its numbers are NOT a measurement. Set an API key to
+     get real rule_v3+llm figures.
+note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they are excluded from every ratio above, not counted as 0.
 ```
 
 `rule_v3` is a regex heuristic and it behaves like one: of the 10 posts a
 reviewer marked actionable it finds 1, and 4 of its 6 hits are marked
-`not_actionable`. Its recall is bounded by the fact that **the net under it is
-too narrow** — the semantic layer can only remove hits, so `rule_v3+llm` keeps
-`rule_v3`'s 1/10 recall no matter how good the model is. That is the entire
-reason `rule_v4` exists.
+`not_actionable` — precision 20.0% (1/5), 95% CI [4%, 62%].
+
+**The `rule_v3+llm` column above is the offline mock, and it reads 0/10, not a
+number.** With no API key the semantic layer runs against a deterministic
+stand-in that answers `false` to everything, so it removes every hit — and the
+report says so in three separate lines rather than printing a plausible-looking
+percentage. That is deliberate: the alternative is a column of mock-derived
+figures that a reader cannot distinguish from measured ones. **This is the one
+place where the tool's own output is not a measurement, and it is labelled as
+such by the tool itself, not by this paragraph.**
+
+The structural point survives the mock: the semantic layer can only *remove*
+hits, so `rule_v3+llm`'s recall can never exceed `rule_v3`'s 1/10. A better
+model cannot fix a net that never caught the buyer. That is the entire reason
+`rule_v4` exists.
 
 **Stage 2 — the opt-in v4 pipeline, `rule_v4` → `rule_v4+llm`:**
 
@@ -222,6 +237,7 @@ $ intentradar eval score --testset einprag-2026-09-27 \
 testset : einprag-2026-09-27   (frozen 2026-09-27)
 truth   : einprag-2026-09-27d  labels.csv sha256=2009ef74b2d1
 project : Einprag   min_score=3
+labels  : 211 rows · 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
 ──────────────────────────────────────────────────────────────
 metric                      rule_v4 (v4.0.0)  rule_v4+llm (v4.5.0+llm)
 predicted                                 42                        11
@@ -233,9 +249,13 @@ precision 95% CI                  [15%, 42%]               [70%, 100%]
 recall                       100.0%  (10/10)             90.0%  (9/10)
 recall 95% CI                    [72%, 100%]                [60%, 98%]
 F1                                     41.7%                     94.7%
-noise rate                             73.7%                      0.0%
+noise rate                    73.7%  (28/38)               0.0%  (0/9)
 unverified hits                            4                         2
 positives (n)                             10                        10
+──────────────────────────────────────────────────────────────
+llm: 0 calls · 0 errors · backend=n/a
+llm: 0 calls · 0 errors · backend=anthropic @ http://127.0.0.1:8787/v1 · model=deepseek-v4-flash
+note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they are excluded from every ratio above, not counted as 0.
 ```
 
 This is the two-stage funnel, and it is the core of the design:

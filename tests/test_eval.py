@@ -90,6 +90,24 @@ def test_eval_run_reports_the_four_numbers(dataset_id: str) -> None:
     for token in (str(report.total), str(report.hit_count), "2.8%", "rule_v3", "v3.0.0"):
         assert token in rendered
 
+    # A rate is never printed alone — not even by the tool. The discipline the
+    # README is held to has to bind our own output first, or it is typography.
+    assert f"2.8% ({report.hit_count}/{report.total})" in rendered
+
+
+def test_eval_run_prints_noise_rate_with_its_counts(dataset_id: str) -> None:
+    """`noise rate 80.0%` must read `80.0% (4/5)` — same rule as any other rate."""
+    if not (TESTSET_DIR / dataset_id / "posts.jsonl").exists():
+        pytest.skip("frozen dataset not present")
+
+    dataset = EvalDataset.load(dataset_id, TESTSET_DIR)
+    report = EvalRunner(watchlist_path=WATCHLIST_PATH).run(dataset)
+    rendered = report.render()
+
+    decided = [h.post.id for h in report.hits if h.post.id in report.label_set.labels]
+    noise = sum(1 for pid in decided if not report.label_set.labels[pid])
+    assert f"{round(noise / len(decided) * 100, 1)}% ({noise}/{len(decided)})" in rendered
+
 
 def test_eval_run_reports_real_review_coverage(dataset_id: str) -> None:
     """`eval run` states the review it actually has, not a W1 placeholder.

@@ -671,6 +671,43 @@ verdict parsed out of the model's own deliberation. Two defences:
 
 Both are pinned by `tests/test_reasoning_response_shape.py`.
 
+### The README's stage-1 table was quoting a number the tool no longer prints
+
+Found while fixing something else. The README's `eval score` baseline block
+showed `rule_v3+llm` at **predicted 1, precision 100.0% (1/1), recall 10.0%
+(1/10)**. That block had been generated from a run made **with a real endpoint
+configured**, then pasted under prose describing the column as the offline mock.
+Run without a key — i.e. by a stranger following the README — the same command
+prints **predicted 0, recall 0.0% (0/10)**: the deterministic mock answers
+`false` to everything, so it removes every hit.
+
+Two numbers, same command, and the published one was the one that could not be
+reproduced. Fixed by regenerating the block from a keyless run and rewriting the
+prose: the mock column is now shown as what it is, and the report's own three
+"NOT a measurement" lines are quoted verbatim so the tool — not the prose — is
+what labels it. The structural claim is kept and restated correctly (the
+semantic layer can only remove hits, so `rule_v3+llm` recall ≤ `rule_v3`
+recall).
+
+### Rates in the tool's own output now carry counts
+
+`eval run` printed `hit rate 2.8%` and `noise rate 80.0%` as bare percentages,
+while the README was being held to a rule requiring counts and an interval
+beside every rate. A discipline that binds the documentation but not the tool is
+typography. Both now print their counts — `2.8% (6/211)`, `80.0% (4/5)` — and
+`eval score`'s `noise rate` row does the same (`73.7% (28/38)`). `hit rate` was
+added to the rate words in `tests/test_docs_honesty.py`, so the guard covers the
+rates our own tool emits, and two tests pin the new format.
+
+### Quickstart leads with the module form
+
+`uv run intentradar …` fails to spawn on locked-down Windows environments
+(`os error 4551`, application-control policy) — reproduced independently on a
+clean clone. It was step 3 of the Quickstart with the module form relegated to a
+note below, so the first command a reviewer ran could fail outright. The module
+form `uv run python -m intentradar …` is now the primary command throughout;
+the console script is mentioned as an alternative, not the default.
+
 ### The changelog exemption is per-file, not per-number
 
 `tests/test_docs_honesty.py` holds published pages to the format rule (a rate

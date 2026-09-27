@@ -42,3 +42,4 @@ _*.txt
 .idea/
 .DS_Store
 Thumbs.db
+_*.log
