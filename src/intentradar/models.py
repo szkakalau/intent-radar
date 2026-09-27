@@ -25,6 +25,13 @@ LAYER_RULE_V3 = "rule_v3"  # regex only — the frozen baselines
 LAYER_RULE_V3_LLM = "rule_v3+llm"
 JUDGE_VERSION_LLM = "v3.1.0+llm"
 
+# W2b: v3 stays frozen at its published number; v4 is a separate, selectable
+# layer with its own version — "wide in, strict out" (see judge/rule_v4.py).
+LAYER_RULE_V4 = "rule_v4"
+JUDGE_VERSION_V4 = "v4.0.0"
+LAYER_RULE_V4_LLM = "rule_v4+llm"
+JUDGE_VERSION_V4_LLM = "v4.1.0+llm"
+
 
 class Signal(StrEnum):
     """Enumeration of intent signals (PRD §3.2)."""
@@ -102,6 +109,10 @@ _WHY_TEMPLATES: dict[str, str] = {
     "competitor": "竞品:{value}",
     "keyword": "品类:{value}",
     "pain": "痛点:{value}",
+    # v4 additions. Absent from v3 evidence, so v3 output is unaffected.
+    "weak_sentiment": "情绪:{matched}",
+    "category_hint": "品类提示:{matched}",
+    "support": "技术支持:{matched}",
 }
 
 

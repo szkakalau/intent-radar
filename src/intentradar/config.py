@@ -113,6 +113,14 @@ class Settings:
     llm_base_url_var: str = "NEBIUS_BASE_URL"
     llm_api_key_var: str = "NEBIUS_API_KEY"
     llm_model_var: str = "NEBIUS_MODEL_EVERYDAY"
+    llm_backend: str = "auto"  # openai | anthropic | auto (sniffed from base_url)
+    llm_timeout_s: float = 60.0
+    # Reasoning models spend part of the budget on chain-of-thought before they
+    # emit the answer. 2048 was measured to be too small: on the Anthropic-shaped
+    # dev proxy a long `thinking` block consumed the whole budget and the JSON
+    # answer came back truncated mid-string, which fails closed and silently
+    # costs recall. 8192 leaves room for both halves.
+    llm_max_tokens: int = 8192
 
     max_posts_per_source: int = DEFAULT_MAX_POSTS_PER_SOURCE
     max_llm_calls: int = DEFAULT_MAX_LLM_CALLS
@@ -174,6 +182,7 @@ class Settings:
             "model": self.llm_model,
             "model_from": self.llm_model_var,
             "mode": "mock" if self.mock_enabled else "live",
+            "backend": self.llm_backend,
         }
 
     @classmethod
@@ -222,6 +231,9 @@ class Settings:
             llm_model_var=(
                 "INTENTRADAR_LLM_MODEL" if override_model else "NEBIUS_MODEL_EVERYDAY"
             ),
+            llm_backend=_env_str("INTENTRADAR_LLM_BACKEND", "auto").lower(),
+            llm_timeout_s=_env_float("INTENTRADAR_LLM_TIMEOUT_S", 60.0),
+            llm_max_tokens=_env_int("INTENTRADAR_LLM_MAX_TOKENS", 8192),
             max_posts_per_source=_env_int(
                 "INTENTRADAR_MAX_POSTS_PER_SOURCE", DEFAULT_MAX_POSTS_PER_SOURCE
             ),

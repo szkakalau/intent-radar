@@ -511,6 +511,7 @@ class LayerScore:
     llm_calls: int = 0
     llm_errors: int = 0
     mock: bool = False
+    backend: str = ""  # protocol + endpoint + model, verbatim from the client
 
     @property
     def precision(self) -> float | None:
@@ -621,7 +622,7 @@ class ScoreReport:
                 continue
             lines.append(
                 f"llm: {score.llm_calls} calls · {score.llm_errors} errors "
-                f"· backend={'MOCK' if score.mock else 'live'}"
+                f"· backend={score.backend or 'n/a'}"
             )
             if score.mock:
                 lines.append("  !! the semantic layer ran against the deterministic mock —")
@@ -714,6 +715,9 @@ class EvalScorer:
                     llm_calls=int(getattr(judge, "llm_calls", 0) or 0) if isinstance(judge, LLMJudge) else 0,
                     llm_errors=int(getattr(judge, "llm_errors", 0) or 0) if isinstance(judge, LLMJudge) else 0,
                     mock=bool(getattr(judge, "is_mock", False)) if isinstance(judge, LLMJudge) else False,
+                    backend=(
+                        str(judge.describe_backend()) if isinstance(judge, LLMJudge) else ""
+                    ),
                 )
             )
 

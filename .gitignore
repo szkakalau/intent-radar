@@ -29,8 +29,12 @@ htmlcov/
 
 # --- local scratch (dev artifacts, never commit) ----------------------------
 _debug_*.py
+_diag_*.py
 pytest_out.txt
 po*.txt
+# ad-hoc pytest --basetemp inside the repo, and captured shell output
+.tmp_pt_*/
+_*.txt
 
 # --- editors / os -----------------------------------------------------------
 .vscode/

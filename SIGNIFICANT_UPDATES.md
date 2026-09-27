@@ -130,4 +130,175 @@ that warning explicitly. Real X → Y numbers require a working endpoint.
 
 ---
 
+---
+
+## W2 follow-up — P0-A `rule_v4` and P0-B Anthropic backend
+
+Two P0s followed from the 0% finding above. The diagnosis was: the W2 semantic
+layer is **subtractive only**, so with `rule_v3` recall at 0 there was nothing
+for it to subtract from. Unlocking it required fixing rule recall first.
+
+### ⚠️ The published 0% no longer reproduces — needs a ruling
+
+Re-running `eval score` against the **`labels.csv` as committed today** does
+not give 0%. It gives:
+
+```
+labels  : 211 rows · 183 labeled (8 actionable / 175 not) · 0 unlabeled · 28 borderline
+metric                      rule_v3 (v3.0.0)
+predicted                                  6
+true positive                              1
+false positive                             4
+false negative                             7
+precision                              20.0%
+recall                                 12.5%
+```
+
+The 0% section above was computed against an older label set — `211 rows ·
+184 labeled (7 actionable / 177 not) · 27 borderline`. Since then one post
+moved `not_actionable → actionable` and one `not_actionable → borderline`, and
+one of `rule_v3`'s 6 hits is now a true positive.
+
+**Nothing in the code changed to cause this.** `rule_v3` is byte-frozen and
+`eval run` still reports 211 / 6 / 2.8% MATCH — the hit set is the same 6 ids.
+Only the ground truth moved under it.
+
+This blocks the "0% is our public headline" decision rather than vindicating
+it: a reviewer who clones and runs `eval score` will get 20.0% / 12.5% and
+find the README disagreeing. Either the README must be re-cut against today's
+labels, or the label change that produced the 8th actionable must be
+re-adjudicated. **Left as-is pending a decision** — the code is committed, the
+headline is not mine to rewrite.
+
+### P0-A — `judge/rule_v4.py`, a high-recall candidate net
+
+`rule_v3` is **frozen** at its published numbers (see above; `eval run` still
+reports 211 posts / 6 hits / 2.8% MATCH). v4 is a **new file with its own
+version**, added alongside, never editing v3's scoring logic.
+
+Design shift: the rule layer is a **net that feeds the LLM**, not a decider.
+"Wide in, strict out" — v4 is deliberately over-inclusive and expects the
+semantic layer to remove the noise; v3 tried to be precise on its own and
+scored *pain* instead of *intent*.
+
+| change | why |
+|---|---|
+| `suck` / `hate` / `frustrated` / `tired of` demoted out of the +4 SWITCH signal into a +1 `WEAK_SENTIMENT` | these generated essentially every v3 false positive |
+| ASK patterns widened (`does anyone have/know/use/recommend`, `cannot find`, `which … should I`, `suggestions for`, `do you use a/any`, `ways to find`, plus a noun slot so `what apps do you use` matches) | v3's `what (do|are) you use` could not match a noun between "what" and the verb |
+| `SUPPORT_RE` bug/support filter added | bug reports and tech-support threads are not purchase intent |
+| category gate kept but widened | the gate is what keeps the net from becoming "every post" |
+
+Measured against the labelled data (`scripts/compare_layers.py`, not opinion):
+
+| testset | `rule_v3` recall | `rule_v4` recall | `rule_v4` candidates |
+|---|---|---|---|
+| einprag | 1 / 8 (12.5%) | **8 / 8 (100%)** | 42 (budget ≤ 60) |
+| bootstrap | 0 / 2 (0%) | **2 / 2 (100%)** | 49 (budget ≤ 60) |
+
+Targets set for acceptance (einprag ≥ 6, bootstrap 2/2, candidates ≤ 60) are
+met. Known looseness, recorded rather than hidden: `alternative` /
+`replacement` / `recommendation` are intent words that *also* appear in the
+category-hint list, so a phrase built on one satisfies the gate by
+construction. The candidate budget absorbs it today; it is the first thing to
+tighten if volume grows.
+
+### P0-B — Anthropic backend, and the first real LLM numbers
+
+`llm/client.py` gained an `AnthropicBackend` (`POST /v1/messages`) behind the
+same `NemotronClient` shell, selectable via `INTENTRADAR_LLM_BACKEND=anthropic`
+or auto-sniffed from the URL. Cache / retry / timeout / gates / accounting stay
+in the shell; the backend only implements `_chat()`. The mock stays testable
+and CI stays fully offline.
+
+Two protocol traps worth recording:
+
+- `system` is a **top-level field** on Anthropic, not a message; the adapter
+  moves it out of `messages`.
+- Reasoning models emit a **`{"type":"thinking"}` block first**, so the answer
+  is *not* `content[0]`. The adapter takes the first block with
+  `type == "text"`.
+
+**Real run — einprag-2026-09-27, 42 LLM calls, 0 errors:**
+
+| metric | `rule_v4` | `rule_v4+llm` |
+|---|---|---|
+| predicted | 42 | 8 |
+| true positive | 8 | 7 |
+| false positive | 29 | 1 |
+| false negative | 0 | 1 |
+| **precision** | 21.6% | **87.5%** |
+| **recall** | **100%** | **87.5%** |
+| **F1** | 35.6% | **87.5%** |
+
+```
+llm: 42 calls · 0 errors · backend=anthropic @ http://127.0.0.1:8787/v1/messages · model=deepseek-v4-flash
+```
+
+**This is a dev-time verification channel, not the deliverable's model.** The
+endpoint is a local Anthropic-shaped proxy and the model is
+`deepseek-v4-flash`. The hackathon deliverable must quote **Nebius +
+Nemotron**, and `describe_backend()` / `config check` now print protocol,
+endpoint and model on every run precisely so these numbers can never be
+re-labelled as Nemotron's by accident.
+
+**Real run — bootstrap-2026-09-27, 49 LLM calls, 0 errors:**
+
+| metric | `rule_v4` | `rule_v4+llm` |
+|---|---|---|
+| predicted | 47 | 0 |
+| true positive | 2 | 0 |
+| false positive | 40 | 0 |
+| false negative | 0 | **2** |
+| **precision** | 4.8% | – |
+| **recall** | **100%** | **0.0%** |
+
+Bootstrap is reported because it is bad. The LLM rejected **both** of
+bootstrap's labelled-actionable posts, and we read its reasons rather than
+averaging them away:
+
+- `1wplixs` — *"The author is a builder doing market validation, not a buyer."*
+- `1wpda04` — *"a strategy/advice request, not a product or service
+  recommendation."*
+
+Both rejections are coherent under the criteria as written ("purchase /
+switch / seeking-recommendation intent"). `1wplixs` literally asks *"Do you use
+a tool for it, or roll your own?"*, which is tool-seeking — but by a builder,
+not a buyer, and our prompt does not say which one counts. **This is a
+criteria-vs-ground-truth disagreement, not a bug**, and it is a decision for
+the reviewer: either those two labels are generous, or the criteria should
+count builder tool-seeking. We are not editing the prompt to make the number
+move.
+
+### Fix found by running it for real
+
+Default `llm_max_tokens` was 2048. On a reasoning model the `thinking` block
+consumed the entire budget and the JSON answer came back **truncated
+mid-string**, which fails closed and silently costs recall (observed on post
+`1wqb4v8`; the failure is also cached, so it persisted across runs). Raised to
+**8192** to leave headroom for both halves. Before the fix: 1 error, precision
+100% / recall 62.5%. After: 0 errors, precision 87.5% / recall 87.5%.
+
+### Also fixed
+
+- `eval score` only wired the real LLM client to `rule_v3+llm`; `rule_v4+llm`
+  silently fell through to the **mock** and would have published a fabricated
+  number. Any `+llm` layer now gets the real client (built once, shared).
+- `config check` now prints the resolved protocol (`openai | anthropic | auto`)
+  next to the endpoint, so the backend is explicit and never inferred.
+
+### Known limitations, stated honestly
+
+- **The headline numbers are still not Nemotron's.** They come from a local
+  proxy serving `deepseek-v4-flash`. Re-running against Nebius is required
+  before anything is published as the deliverable's accuracy.
+- `rule_v3` remains the **default** pipeline layer, so the published 0% is
+  still what ships unless v4 is explicitly selected. Promoting v4 to default
+  is a separate decision.
+- Bootstrap's ground truth is 2 actionable rows — too small for the 0/2 LLM
+  result to be more than a signal that the criteria need a ruling.
+- The LLM response cache stores failures as well as successes, so a transient
+  parse failure sticks until the cache is cleared.
+
+---
+
 _Each subsequent week will be appended below._

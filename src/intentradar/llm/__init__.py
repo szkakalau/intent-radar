@@ -16,14 +16,19 @@ from __future__ import annotations
 from typing import Any
 
 from intentradar.llm.client import (
+    ANTHROPIC_VERSION,
+    BACKEND_ANTHROPIC,
+    BACKEND_OPENAI,
     DEFAULT_BASE_URL,
     MODEL_PRICING,
     PRICING_FALLBACK_PER_1M,
+    AnthropicBackend,
     HttpBackend,
     LLMConfig,
     LLMResponse,
     MockBackend,
     NemotronClient,
+    resolve_backend,
 )
 
 __all__ = [
@@ -35,6 +40,11 @@ __all__ = [
     "MODEL_PRICING",
     "PRICING_FALLBACK_PER_1M",
     "DEFAULT_BASE_URL",
+    "ANTHROPIC_VERSION",
+    "BACKEND_OPENAI",
+    "BACKEND_ANTHROPIC",
+    "AnthropicBackend",
+    "resolve_backend",
     "build_client",
 ]
 

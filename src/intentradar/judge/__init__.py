@@ -13,8 +13,12 @@ from intentradar.config import ProjectConfig
 from intentradar.models import (
     JUDGE_VERSION,
     JUDGE_VERSION_LLM,
+    JUDGE_VERSION_V4,
+    JUDGE_VERSION_V4_LLM,
     LAYER_RULE_V3,
     LAYER_RULE_V3_LLM,
+    LAYER_RULE_V4,
+    LAYER_RULE_V4_LLM,
     Judgment,
     Post,
 )
@@ -27,11 +31,23 @@ __all__ = [
     "AVAILABLE_LAYERS",
     "LAYER_RULE_V3",
     "LAYER_RULE_V3_LLM",
+    "LAYER_RULE_V4",
+    "LAYER_RULE_V4_LLM",
     "JUDGE_VERSION",
     "JUDGE_VERSION_LLM",
+    "JUDGE_VERSION_V4",
+    "JUDGE_VERSION_V4_LLM",
 ]
 
-AVAILABLE_LAYERS = (LAYER_RULE_V3, LAYER_RULE_V3_LLM)
+AVAILABLE_LAYERS = (LAYER_RULE_V3, LAYER_RULE_V3_LLM, LAYER_RULE_V4, LAYER_RULE_V4_LLM)
+
+# Which rule layer sits under each composite "+llm" layer, and which version the
+# composite publishes. Explicit, so a new rule layer cannot silently inherit a
+# version that belongs to another one.
+COMPOSITE_LAYERS: dict[str, tuple[str, str]] = {
+    LAYER_RULE_V3_LLM: (LAYER_RULE_V3, JUDGE_VERSION_LLM),
+    LAYER_RULE_V4_LLM: (LAYER_RULE_V4, JUDGE_VERSION_V4_LLM),
+}
 
 
 @runtime_checkable
@@ -65,11 +81,17 @@ def get_judge(layer: str = LAYER_RULE_V3, client: Any = None) -> Judge:
     from intentradar.errors import ConfigError
     from intentradar.judge.llm import LLMJudge
     from intentradar.judge.rule_v3 import RuleV3Judge
+    from intentradar.judge.rule_v4 import RuleV4Judge
 
-    if layer == LAYER_RULE_V3_LLM:
-        judge: Judge = LLMJudge(client=client)
+    judge: Judge
+    if layer in COMPOSITE_LAYERS:
+        base_layer, _version = COMPOSITE_LAYERS[layer]
+        base: Judge = RuleV4Judge() if base_layer == LAYER_RULE_V4 else RuleV3Judge()
+        judge = LLMJudge(client=client, rule=base)
     elif layer == LAYER_RULE_V3:
         judge = RuleV3Judge()
+    elif layer == LAYER_RULE_V4:
+        judge = RuleV4Judge()
     else:
         raise ConfigError(
             f"judge layer {layer!r} is not implemented "

@@ -160,6 +160,10 @@ def cmd_config_check(args: argparse.Namespace, settings: Settings) -> int:
         f"  (from {llm['model_from']})"
     )
     print(f"  model reasoning  {settings.model_reasoning or '(empty — optional)'}")
+    # Protocol is printed explicitly rather than inferred from the URL: an
+    # Anthropic-shaped dev proxy can serve a non-Nemotron model, and a number
+    # must never be published under the wrong protocol by accident.
+    print(f"  llm backend      {llm['backend']}  (openai | anthropic | auto)")
     print(f"  llm mode         {llm['mode']}")
     print(f"  judge layers     {', '.join(AVAILABLE_LAYERS)}")
     print(
@@ -256,21 +260,27 @@ def cmd_eval_score(args: argparse.Namespace, settings: Settings) -> int:
     requested = [s.strip() for s in args.layers.split(",") if s.strip()]
     layers = requested or ["rule_v3", "rule_v3+llm"]
 
+    # Every composite layer needs the real client — not just rule_v3+llm.
+    # Hard-coding the v3 name would silently score rule_v4+llm against the
+    # deterministic mock and publish a fabricated number.
+    client: Any = None
     judges: list[Any] = []
     for layer in layers:
-        if layer == "rule_v3+llm":
+        if layer.endswith("+llm"):
             # Budget + gates are attached so a scoring run cannot silently spend
-            # more than the operator allowed.
-            client = build_client(
-                settings,
-                budget=BudgetGuard(
-                    path=settings.usage_path, monthly_budget_usd=settings.monthly_budget_usd
-                ),
-                gates=RunGates(
-                    max_llm_calls=settings.max_llm_calls,
-                    max_posts_per_source=settings.max_posts_per_source,
-                ),
-            )
+            # more than the operator allowed. Built once and shared.
+            if client is None:
+                client = build_client(
+                    settings,
+                    budget=BudgetGuard(
+                        path=settings.usage_path,
+                        monthly_budget_usd=settings.monthly_budget_usd,
+                    ),
+                    gates=RunGates(
+                        max_llm_calls=settings.max_llm_calls,
+                        max_posts_per_source=settings.max_posts_per_source,
+                    ),
+                )
             judges.append(get_judge(layer, client=client))
         else:
             judges.append(get_judge(layer))

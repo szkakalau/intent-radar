@@ -27,5 +27,13 @@
   "layer": "rule_v3",
   "min_score": 5,
   "cutoff_utc": 1790187320,
-  "total_in_window": 211
+  "total_in_window": 211,
+  "label_version": "einprag-2026-09-27a",
+  "label_reviewer": "ai-draft",
+  "label_counts": {
+    "actionable": 8,
+    "borderline": 28,
+    "not_actionable": 175
+  },
+  "label_changelog": "rev a: full-text re-review after discovering that a 650-char truncation during batch labeling hid intent statements. 1wp6ji1 borderline->actionable (full text: 'If I know how to import a list, I might switch... Is Anki better or another app?'). 1woxhua not_actionable->borderline (full text asks whether existing courses/textbooks/software build a curriculum from a target corpus). 1wqd2iq not_actionable->borderline (full text: forgets lengthy topics, 'If you have any solution, any suggestion, please comment'). All other labels unchanged; 211 rows verified."
 }

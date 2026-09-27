@@ -41,7 +41,11 @@ from intentradar.errors import ConfigError
 from intentradar.judge.rule_v3 import RuleV3Judge
 from intentradar.models import (
     JUDGE_VERSION_LLM,
+    JUDGE_VERSION_V4_LLM,
+    LAYER_RULE_V3,
     LAYER_RULE_V3_LLM,
+    LAYER_RULE_V4,
+    LAYER_RULE_V4_LLM,
     Judgment,
     Post,
 )
@@ -56,6 +60,14 @@ log = logging.getLogger(__name__)
 CANDIDATE_MIN_SCORE = 3
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+# Which composite layer + version each rule layer maps to. The semantic layer is
+# subtractive, so it inherits its identity from the net underneath it — a v4 net
+# must publish v4 numbers, not v3's.
+_COMPOSITE_BY_RULE_LAYER: dict[str, tuple[str, str]] = {
+    LAYER_RULE_V3: (LAYER_RULE_V3_LLM, JUDGE_VERSION_LLM),
+    LAYER_RULE_V4: (LAYER_RULE_V4_LLM, JUDGE_VERSION_V4_LLM),
+}
 
 
 # ── the criteria ───────────────────────────────────────────────────────────
@@ -219,7 +231,13 @@ def build_user_prompt(
 
 @dataclass
 class LLMJudge:
-    """``rule_v3`` candidates, confirmed by an LLM. Layer ``rule_v3+llm``."""
+    """Rule-layer candidates, confirmed by an LLM.
+
+    Subtractive by design: the rule layer proposes, the LLM disposes. The
+    concrete layer/version identity is derived in ``__post_init__`` from the
+    wrapped rule, so a v4 net publishes ``rule_v4+llm`` figures and never
+    re-labels them as v3's.
+    """
 
     client: Any = None
     rule: Judge | None = None
@@ -235,9 +253,15 @@ class LLMJudge:
     judge_version: str = JUDGE_VERSION_LLM
 
     def __post_init__(self) -> None:
-        """Default the rule layer; the LLM client is resolved lazily."""
+        """Default the rule layer, then take the composite identity from it."""
         if self.rule is None:
             self.rule = RuleV3Judge()
+        rule_layer = str(getattr(self.rule, "layer", LAYER_RULE_V3) or LAYER_RULE_V3)
+        composite, version = _COMPOSITE_BY_RULE_LAYER.get(
+            rule_layer, (f"{rule_layer}+llm", JUDGE_VERSION_LLM)
+        )
+        self.layer = composite
+        self.judge_version = version
 
     # ── collaborators ──────────────────────────────────────────────────────
     def _client(self) -> Any:
@@ -257,9 +281,27 @@ class LLMJudge:
             return True
         return bool(getattr(self.client, "is_mock", False))
 
+    def describe_backend(self) -> str:
+        """Protocol + endpoint + model, so a number can never be mislabelled.
+
+        The W2 acceptance run used an Anthropic-shaped dev proxy serving
+        ``deepseek-v4-flash``. The deliverable must quote Nebius + Nemotron
+        figures — so every printed number names the model that actually
+        produced it, and mock output says so in as many words.
+        """
+        if self.client is None:
+            return "MOCK (no client configured; deterministic stand-in)"
+        if self.is_mock:
+            return "MOCK (deterministic stand-in; NOT a measurement)"
+        config = getattr(self.client, "config", None)
+        protocol = str(getattr(self.client, "backend_protocol", "") or "unknown")
+        endpoint = str(getattr(config, "base_url", "") or "")
+        model = str(getattr(config, "model", "") or "")
+        return f"{protocol} @ {endpoint} · model={model or '(unset)'}"
+
     # ── judgment ──────────────────────────────────────────────────────────
     def judge(self, post: Post, project: ProjectConfig) -> Judgment:
-        """Score with ``rule_v3``, then confirm the candidate with the LLM."""
+        """Score with the wrapped rule layer, then confirm the candidate."""
         base = self.rule.judge(post, project)
 
         # Below the candidate bar, or an official/megathread post: no LLM spend.
@@ -307,8 +349,9 @@ class LLMJudge:
             log.warning("LLM judgment unusable for post %s: %s", post.id, verdict.error)
         return verdict
 
-    @staticmethod
-    def _compose(base: Judgment, verdict: LLMVerdict | None, keep_score: bool = True) -> Judgment:
+    def _compose(
+        self, base: Judgment, verdict: LLMVerdict | None, keep_score: bool = True
+    ) -> Judgment:
         """Wrap the rule judgment with the LLM verdict attached.
 
         A rejected (or unanswerable) post keeps its evidence — so the audit trail
@@ -320,8 +363,8 @@ class LLMJudge:
             signals=list(base.signals),
             evidence=list(base.evidence),
             why=list(base.why),
-            layer=LAYER_RULE_V3_LLM,
-            judge_version=JUDGE_VERSION_LLM,
+            layer=self.layer,
+            judge_version=self.judge_version,
             llm_verdict=None if verdict is None else verdict.is_actionable,
             llm_confidence=None if verdict is None else verdict.confidence,
             llm_reason="" if verdict is None else verdict.reason,

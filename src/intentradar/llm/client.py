@@ -40,6 +40,39 @@ MOCK_REASONING_MODEL = "mock/nemotron-reasoning"
 # INTENTRADAR_LLM_BASE_URL / NEBIUS_BASE_URL.
 DEFAULT_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
 
+# Anthropic Messages API version header.
+ANTHROPIC_VERSION = "2023-06-01"
+
+# Which wire protocol to speak. "auto" sniffs the configured base URL.
+BACKEND_OPENAI = "openai"
+BACKEND_ANTHROPIC = "anthropic"
+
+
+def resolve_backend(base_url: str, setting: str = "auto") -> str:
+    """Decide which wire protocol a base URL needs.
+
+    Args:
+        base_url: the configured endpoint.
+        setting: ``INTENTRADAR_LLM_BACKEND`` — ``openai``, ``anthropic`` or
+            ``auto``. An explicit value always wins.
+
+    Returns:
+        ``"openai"`` or ``"anthropic"``.
+
+    ``auto`` sniffs one thing only: an endpoint whose path ends in ``/messages``
+    is an Anthropic Messages endpoint, because that is the path the protocol is
+    named after. Everything else is treated as OpenAI-compatible, which is what
+    Nebius Token Factory speaks.
+    """
+    choice = (setting or "auto").strip().lower()
+    if choice in (BACKEND_OPENAI, BACKEND_ANTHROPIC):
+        return choice
+    if choice not in ("", "auto"):
+        raise ConfigError(
+            f"INTENTRADAR_LLM_BACKEND: expected openai|anthropic|auto, got {setting!r}"
+        )
+    return BACKEND_ANTHROPIC if base_url.rstrip("/").endswith("/messages") else BACKEND_OPENAI
+
 
 @dataclass
 class LLMResponse:
@@ -73,6 +106,7 @@ class LLMConfig:
     cache_dir: Path | None = None
     mock: bool = False
     allow_unpriced: bool = True
+    backend: str = "auto"  # openai | anthropic | auto
 
     def model_for(self, tier: str) -> str:
         """Resolve the slug for ``tier`` (``everyday`` | ``reasoning``)."""
@@ -97,6 +131,9 @@ class LLMConfig:
             cache_dir=getattr(settings, "cache_dir", None),
             mock=bool(getattr(settings, "mock_enabled", True)),
             allow_unpriced=bool(getattr(settings, "allow_unpriced", True)),
+            backend=str(getattr(settings, "llm_backend", "auto") or "auto"),
+            timeout_s=float(getattr(settings, "llm_timeout_s", 60.0) or 60.0),
+            max_tokens=int(getattr(settings, "llm_max_tokens", 1024) or 1024),
         )
 
 
@@ -252,6 +289,160 @@ class HttpBackend:
         return content, prompt_tokens, completion_tokens
 
 
+class AnthropicBackend:
+    """Anthropic Messages backend (``POST /v1/messages``).
+
+    Development-time verification channel: it lets the semantic layer be
+    measured before a Nebius key exists. Three protocol differences from the
+    OpenAI-compatible backend:
+
+    1. the path is ``/messages``, not ``/chat/completions``;
+    2. ``system`` is a **top-level field**, not a ``role: "system"`` message;
+    3. the reply is ``{"content": [{"type": "text", "text": ...}]}``, not
+       ``choices[0].message.content``.
+
+    A fourth, easy-to-miss detail: reasoning models emit a ``{"type":"thinking"}``
+    block *before* the text block, so the answer is **not** ``content[0]``. The
+    first block whose ``type == "text"`` is the answer. Reading ``content[0]``
+    silently yields the model's private reasoning — or nothing at all when the
+    token budget is spent on thinking.
+
+    Retry semantics match :class:`HttpBackend`: 4xx is final (1 attempt),
+    5xx/transport errors back off up to ``max_retries`` times.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        timeout_s: float = 60.0,
+        max_retries: int = 2,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+        client: httpx.Client | None = None,
+        sleep_fn: Any = None,
+    ) -> None:
+        """Initialise. ``client`` is injectable for tests (mock transport)."""
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.timeout_s = timeout_s
+        self.max_retries = max(0, int(max_retries))
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self._client = client
+        self._sleep = sleep_fn or time.sleep
+
+    @property
+    def url(self) -> str:
+        """The messages endpoint, whether or not ``/messages`` was configured."""
+        base = self.base_url.rstrip("/")
+        if base.endswith("/messages"):
+            return base
+        return f"{base}/messages"
+
+    # ── helpers ────────────────────────────────────────────────────────────
+    def _headers(self) -> dict[str, str]:
+        """Anthropic auth headers (no ``Bearer`` prefix, unlike OpenAI)."""
+        return {
+            "content-type": "application/json",
+            "x-api-key": self.api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+        }
+
+    @staticmethod
+    def _extract_text(data: dict[str, Any]) -> str:
+        """Return the first ``text`` block — **not** ``content[0]``."""
+        blocks = data.get("content") or []
+        for block in blocks:
+            if isinstance(block, dict) and block.get("type") == "text":
+                return str(block.get("text") or "")
+        raise ProviderError("anthropic", f"no text block in response: {json.dumps(data)[:200]}")
+
+    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """One POST with retry on transient errors (same policy as HttpBackend)."""
+        last_error = ""
+        for attempt in range(self.max_retries + 1):
+            try:
+                if self._client is not None:
+                    response = self._client.post(self.url, json=payload, headers=self._headers())
+                else:
+                    with httpx.Client(timeout=self.timeout_s) as client:
+                        response = client.post(self.url, json=payload, headers=self._headers())
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                if attempt >= self.max_retries:
+                    break
+                self._sleep(1.5 * (attempt + 1))
+                continue
+
+            code = response.status_code
+            if 400 <= code < 500:
+                # 4xx is a client error (bad key / bad payload): retrying cannot help.
+                raise ProviderError("anthropic", f"HTTP {code}: {response.text[:200]}")
+            if code >= 400:
+                last_error = f"HTTP {code}: {response.text[:200]}"
+                if attempt >= self.max_retries:
+                    break
+                self._sleep(1.5 * (attempt + 1))
+                continue
+            try:
+                return response.json()
+            except ValueError as exc:
+                last_error = f"invalid JSON: {exc}"
+                if attempt >= self.max_retries:
+                    break
+                self._sleep(1.5 * (attempt + 1))
+
+        raise ProviderError(
+            "anthropic", f"failed after {self.max_retries + 1} attempt(s): {last_error}"
+        )
+
+    def list_models(self) -> list[str]:
+        """``GET /models`` against an Anthropic-compatible endpoint."""
+        url = self.base_url.rsplit("/messages", 1)[0] + "/models"
+        if self._client is not None:
+            response = self._client.get(url, headers=self._headers())
+        else:
+            with httpx.Client(timeout=self.timeout_s) as client:
+                response = client.get(url, headers=self._headers())
+        if response.status_code >= 400:
+            raise ProviderError("anthropic", f"HTTP {response.status_code}: {response.text[:200]}")
+        data = response.json()
+        return [str(m.get("id")) for m in (data.get("data") or []) if isinstance(m, dict)]
+
+    # ── backend contract ───────────────────────────────────────────────────
+    def _chat(self, messages: list[dict[str, str]], model: str) -> tuple[str, int, int]:
+        """Call the Messages endpoint and extract content + usage."""
+        system = ""
+        turns: list[dict[str, str]] = []
+        for message in messages:
+            if message.get("role") == "system":
+                # Anthropic takes the system prompt out of band.
+                system = message.get("content", "")
+            else:
+                turns.append(message)
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "max_tokens": self.max_tokens,
+            "messages": turns or [{"role": "user", "content": ""}],
+        }
+        if system:
+            payload["system"] = system
+        if self.temperature:
+            payload["temperature"] = self.temperature
+
+        data = self._post(payload)
+        content = self._extract_text(data)
+        usage = data.get("usage") or {}
+        prompt_tokens = int(usage.get("input_tokens") or 0)
+        completion_tokens = int(usage.get("output_tokens") or 0)
+        if not prompt_tokens and not completion_tokens:
+            prompt_tokens = max(1, sum(len(m.get("content", "")) for m in messages) // 4)
+            completion_tokens = max(1, len(content) // 4)
+        return content, prompt_tokens, completion_tokens
+
+
 class NemotronClient:
     """The shell: cache, gate, accounting, retries — identical for mock and real."""
 
@@ -281,10 +472,28 @@ class NemotronClient:
         )
 
     def _default_backend(self) -> _Backend:
-        """Mock when configured (or keyless), otherwise the HTTP backend."""
+        """Mock when configured (or keyless), otherwise the configured wire protocol."""
         if self.config.mock or not self.config.api_key:
             return MockBackend(max_tokens=self.config.max_tokens)
+        if resolve_backend(self.config.base_url, self.config.backend) == BACKEND_ANTHROPIC:
+            return self._anthropic_backend()
         return self._http_backend()
+
+    def _anthropic_backend(self) -> AnthropicBackend:
+        """Build the Anthropic Messages backend."""
+        if not self.config.api_key:
+            raise ConfigError(
+                "no LLM API key for live calls — set INTENTRADAR_LLM_API_KEY "
+                "(or NEBIUS_API_KEY) in .env, or leave both unset to run in mock mode"
+            )
+        return AnthropicBackend(
+            api_key=self.config.api_key,
+            base_url=self.config.base_url,
+            timeout_s=self.config.timeout_s,
+            max_retries=self.config.max_retries,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
+        )
 
     def _http_backend(self) -> HttpBackend:
         """Build the real backend (Nebius)."""
@@ -439,6 +648,15 @@ class NemotronClient:
     def list_models(self) -> list[str]:
         """Probe ``GET /models``. Raises when unreachable or in mock mode."""
         backend = self._backend
-        if isinstance(backend, HttpBackend):
+        if isinstance(backend, (HttpBackend, AnthropicBackend)):
             return backend.list_models()
-        raise ProviderError("nemotron", "list_models requires a real NEBIUS_API_KEY")
+        raise ProviderError("nemotron", "list_models requires a real API key and a live endpoint")
+
+    @property
+    def backend_protocol(self) -> str:
+        """Which wire protocol this client actually speaks (for honest reporting)."""
+        if isinstance(self._backend, AnthropicBackend):
+            return BACKEND_ANTHROPIC
+        if isinstance(self._backend, HttpBackend):
+            return BACKEND_OPENAI
+        return "mock"
