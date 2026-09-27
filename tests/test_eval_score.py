@@ -19,6 +19,7 @@ from intentradar.eval import (
     LabelSet,
     label_fingerprint,
     subreddit_density,
+    wilson_interval,
 )
 from intentradar.judge import get_judge
 from intentradar.judge.llm import LLMJudge
@@ -365,6 +366,32 @@ def test_density_flags_subreddits_that_produced_nothing() -> None:
     assert "Zero-actionable subreddits" in rendered
     for sub in zero:
         assert sub in rendered
+
+
+def test_wilson_interval_matches_the_hand_computed_value() -> None:
+    """8/11 must give ~[43%, 90%] — the einprag precision, checked by hand."""
+    low, high = wilson_interval(8, 11)
+    assert low == pytest.approx(0.4343, abs=1e-3)
+    assert high == pytest.approx(0.9025, abs=1e-3)
+
+
+def test_wilson_interval_stays_inside_zero_and_one() -> None:
+    """Tiny samples break the normal approximation; Wilson must not."""
+    for successes, total in ((0, 1), (1, 1), (5, 5), (8, 8), (0, 8), (8, 11)):
+        low, high = wilson_interval(successes, total)
+        assert 0.0 <= low <= high <= 1.0, (successes, total)
+    assert wilson_interval(0, 0) == (0.0, 0.0)
+
+
+def test_rates_are_printed_with_counts_and_an_interval(
+    dataset: EvalDataset, project: ProjectConfig
+) -> None:
+    """A bare percentage on n=8 misleads; counts and CI must travel with it."""
+    report = EvalScorer([get_judge(LAYER_RULE_V3)]).score(dataset, project=project)
+    rendered = report.render()
+    assert "precision 95% CI" in rendered
+    assert "recall 95% CI" in rendered
+    assert "positives (n)" in rendered
 
 
 def test_density_does_not_count_borderline_as_negative() -> None:

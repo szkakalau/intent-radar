@@ -556,6 +556,32 @@ class LayerScore:
         return f"{self.layer} ({self.judge_version})"
 
 
+Z_95 = 1.959963984540054
+
+
+def wilson_interval(successes: int, total: int, z: float = Z_95) -> tuple[float, float]:
+    """95% Wilson score interval for a proportion.
+
+    Chosen over the normal approximation because our samples are tiny (n=8) and
+    the normal interval happily returns bounds outside [0, 1] there. Publishing
+    an error bar is the point: a tool that states its accuracy should state how
+    little that accuracy is worth at this sample size.
+    """
+    if total <= 0:
+        return (0.0, 0.0)
+    n = float(total)
+    p = successes / n
+    denom = 1.0 + (z * z) / n
+    centre = (p + (z * z) / (2.0 * n)) / denom
+    margin = (z * ((p * (1.0 - p) / n + (z * z) / (4.0 * n * n)) ** 0.5)) / denom
+    return (max(0.0, centre - margin), min(1.0, centre + margin))
+
+
+def _fmt_ci(interval: tuple[float, float]) -> str:
+    """``[43%, 91%]`` — compact enough to sit next to a percentage."""
+    return f"[{interval[0] * 100:.0f}%, {interval[1] * 100:.0f}%]"
+
+
 @dataclass
 class ScoreReport:
     """Rule layer vs rule+LLM, computed against the same ground truth."""
@@ -609,19 +635,47 @@ class ScoreReport:
         def _pct(value: float | None) -> str:
             return "-" if value is None else f"{value * 100:.1f}%"
 
+        # A bare percentage on n=8 is misleading, so every rate is printed with
+        # its raw counts and a 95% Wilson interval. The interval is wide; that
+        # width is information, not embarrassment.
+        def _cell(value: float | None, tp: int, denom: int) -> str:
+            if value is None or denom <= 0:
+                return "-"
+            return f"{value * 100:.1f}%  ({tp}/{denom})"
+
+        def _ci_cell(value: float | None, tp: int, denom: int) -> str:
+            if value is None or denom <= 0:
+                return "-"
+            return _fmt_ci(wilson_interval(tp, denom))
+
         rows: list[tuple[str, list[str]]] = [
             ("predicted", [str(s.predicted) for s in self.scores]),
             ("true positive", [str(s.tp) for s in self.scores]),
             ("false positive", [str(s.fp) for s in self.scores]),
             ("false negative", [str(s.fn) for s in self.scores]),
-            ("precision", [_pct(s.precision) for s in self.scores]),
-            ("recall", [_pct(s.recall) for s in self.scores]),
+            (
+                "precision",
+                [_cell(s.precision, s.tp, s.tp + s.fp) for s in self.scores],
+            ),
+            (
+                "precision 95% CI",
+                [_ci_cell(s.precision, s.tp, s.tp + s.fp) for s in self.scores],
+            ),
+            ("recall", [_cell(s.recall, s.tp, s.tp + s.fn) for s in self.scores]),
+            (
+                "recall 95% CI",
+                [_ci_cell(s.recall, s.tp, s.tp + s.fn) for s in self.scores],
+            ),
             ("F1", [_pct(s.f1) for s in self.scores]),
             ("noise rate", [_pct(s.noise_rate) for s in self.scores]),
             ("unverified hits", [str(s.unverified) for s in self.scores]),
         ]
         for name, values in rows:
             lines.append(f"{name:<18}" + "".join(v.rjust(width) for v in values))
+        lines.append(
+            f"{'positives (n)':<18}"
+            + "".join(str(self.labels.positives).rjust(width) for _ in self.scores)
+        )
 
         lines.append(sep)
         for score in self.scores:

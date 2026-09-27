@@ -442,15 +442,19 @@ verified unchanged):
 | id | from → to | why |
 |---|---|---|
 | `1wq1xms`, `1woxhua` | → actionable | reverse audit |
-| `1wqq5om` | not_actionable → **borderline** | names apps/tools, so the old "maker, not a customer" reason was invalid; still fails criterion (1) because distraction-blocking is outside the exam-prep domain |
-| `1wq5s03` | not_actionable → **borderline** | asks for a way "outside of an app", naming no purchasable category |
+| `1wqq5om` | not_actionable → **borderline** | the old "maker, not a customer" reason was invalid (not one of the three criteria); fails criterion (2) — the author built a browser that "worked surprisingly well", so the need is already met |
+| `1wq5s03` | **stays not_actionable** — team-lead overruled the reviewer | asks for a way "outside of an app", explicitly excluding the product form we sell; wants reassurance and practice advice, not a product |
 | `1wq8u54` | stays not_actionable, **note rewritten** | "alternative algorithm" is outside the domain (criterion 1); the old note said "academic", which is not one of the three criteria |
 
-**Two of these are currently false positives, so this relabelling will move
-precision from 72.7% to roughly 88.9% with the model unchanged.** That jump is
-a **relabelling effect, not a model improvement**, and must never be reported
-as v4.4.0 being better. It is recorded here so the next changelog cannot
-claim it by accident.
+**One of these is currently a false positive, so this relabelling will move
+precision from 72.7% (8/11) to 80.0% (8/10) with the model unchanged.** That
+jump is a **relabelling effect, not a model improvement**, and must never be
+reported as v4.4.0 being better. It is recorded here so the next changelog
+cannot claim it by accident.
+
+(Corrected: an earlier version of this note said 88.9%, from a draft in which
+`1wq5s03` also moved to borderline. The team lead overruled that one, so only
+`1wqq5om` moves and the figure is 80.0%.)
 
 The reviewer also caught a private criterion of his own: "maker, not a
 customer" is not one of the three criteria — criterion (3) excludes
