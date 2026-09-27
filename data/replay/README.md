@@ -3,10 +3,18 @@
 These files exist so that the published accuracy table can be recomputed by
 someone who has no model endpoint — which includes the reviewer.
 
-**What they are.** 42 raw responses from **`deepseek-v4-flash`**, reached
-through a local Anthropic-shaped development proxy at `http://127.0.0.1:8787/v1`
-during the `v4.5.0+llm` acceptance run on testset `einprag-2026-09-27`
-(`label_version` `einprag-2026-09-27d`, `labels.csv sha256=2009ef74b2d1`).
+**What they are.** Raw responses from **`deepseek-v4-flash`**, reached through a
+local Anthropic-shaped development proxy at `http://127.0.0.1:8787/v1` during
+the acceptance runs on testset `einprag-2026-09-27` (`label_version`
+`einprag-2026-09-27d`, `labels.csv sha256=2009ef74b2d1`). Two recordings:
+
+| directory | layer | calls | backs |
+|---|---|---|---|
+| `einprag-2026-09-27/rule_v3_llm/` | `rule_v3+llm` (`v3.1.0+llm`) | 14 | the shipping-default table |
+| `einprag-2026-09-27/rule_v4_llm/` | `rule_v4+llm` (`v4.5.0+llm`) | 42 | the v4 funnel table |
+
+Both tables are published in the README and both are covered by a test that
+replays the recording and compares every row line by line.
 
 **What they are NOT.** They are **not** Nemotron, and not Nebius. Every figure
 derived from them must be attributed to `deepseek-v4-flash`. Re-measuring on
@@ -16,16 +24,21 @@ Nemotron result.
 ## Reproducing the table
 
 ```bash
+# the shipping default (rule_v3 vs rule_v3+llm, threshold from meta.json)
+uv run python -m intentradar eval score --testset einprag-2026-09-27 \
+    --replay data/replay/einprag-2026-09-27/rule_v3_llm
+
+# the v4 funnel
 uv run python -m intentradar eval score --testset einprag-2026-09-27 \
     --layers rule_v4,rule_v4+llm --min-score 3 \
     --replay data/replay/einprag-2026-09-27/rule_v4_llm
 ```
 
-No network, no API key. The report prints `REPLAYED — frozen model responses
+No network, no API key. Either report prints `REPLAYED — frozen model responses
 from <date>, model=deepseek-v4-flash. Not a live run.` on its first line, and
-`tests/test_replay.py` compares every row of the table against the one
-published in the README — so the published numbers cannot drift away from the
-reproducible ones without the test suite failing.
+`tests/test_replay.py` replays both recordings and compares every row of both
+published tables line by line — so the published numbers cannot drift away from
+the reproducible ones without the test suite failing.
 
 ## What each record carries
 

@@ -74,7 +74,7 @@ uv run python -m intentradar eval run --testset einprag-2026-09-27
 |---|---|
 | `intentradar run` | Collect → judge → dedupe → write the daily report |
 | `intentradar config check` | Validate `.env` + `config/watchlist.json` before anything runs; prints `backend=… · model=…` |
-| `intentradar llm hello` | Smoke-test the Nemotron client (works in mock mode without a key) |
+| `intentradar llm hello` | Smoke-test the configured LLM client; prints the backend + model it will actually use (works in mock mode without a key) |
 | `intentradar eval run` | Recompute the frozen hit set, offline |
 | `intentradar eval score` | Scores any `--layers` list against `labels.csv`; every rate printed with its counts and a Wilson interval |
 | `intentradar eval density` | Per-subreddit ground-truth density — **read this when positives < 10** |
@@ -195,31 +195,30 @@ measurement.
 **Stage 1 — the shipping default, `rule_v3`:**
 
 ```
-$ intentradar eval score --testset einprag-2026-09-27
+$ intentradar eval score --testset einprag-2026-09-27 \
+      --replay data/replay/einprag-2026-09-27/rule_v3_llm
 
+REPLAYED — frozen model responses from 2026-09-27T08:19:10Z, model=deepseek-v4-flash. Not a live run.
 testset : einprag-2026-09-27   (frozen 2026-09-27)
 truth   : einprag-2026-09-27d  labels.csv sha256=2009ef74b2d1
 project : Einprag   min_score=5
 labels  : 211 rows · 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
 ──────────────────────────────────────────────────────────────
 metric                      rule_v3 (v3.0.0)  rule_v3+llm (v3.1.0+llm)
-predicted                                  6                         0
-true positive                              1                         0
+predicted                                  6                         1
+true positive                              1                         1
 false positive                             4                         0
-false negative                             9                        10
-precision                       20.0%  (1/5)                         -
-precision 95% CI                   [4%, 62%]                         -
-recall                         10.0%  (1/10)              0.0%  (0/10)
-recall 95% CI                      [2%, 40%]                 [0%, 28%]
-F1                                     13.3%                         -
-noise rate                      80.0%  (4/5)                         -
+false negative                             9                         9
+precision                       20.0%  (1/5)             100.0%  (1/1)
+precision 95% CI                   [4%, 62%]               [21%, 100%]
+recall                         10.0%  (1/10)             10.0%  (1/10)
+recall 95% CI                      [2%, 40%]                 [2%, 40%]
+F1                                     13.3%                     18.2%
+noise rate                      80.0%  (4/5)               0.0%  (0/1)
 unverified hits                            1                         0
 positives (n)                             10                        10
 ──────────────────────────────────────────────────────────────
-llm: 0 calls · 0 errors · backend=MOCK (deterministic stand-in; NOT a measurement)
-  !! the semantic layer ran against the deterministic mock —
-     its numbers are NOT a measurement. Set an API key to
-     get real rule_v3+llm figures.
+llm: 14 calls · 0 errors · backend=REPLAYED from data/replay/einprag-2026-09-27/rule_v3_llm · model=deepseek-v4-flash
 note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they are excluded from every ratio above, not counted as 0.
 ```
 
@@ -227,63 +226,38 @@ note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they
 reviewer marked actionable it finds 1, and 4 of its 6 hits are marked
 `not_actionable` — precision 20.0% (1/5), 95% CI [4%, 62%].
 
-**The `rule_v3+llm` column above is the offline mock, and it reads 0/10, not a
-number.** With no API key the semantic layer runs against a deterministic
-stand-in that answers `false` to everything, so it removes every hit — and the
-report says so in three separate lines rather than printing a plausible-looking
-percentage. That is deliberate: the alternative is a column of mock-derived
-figures that a reader cannot distinguish from measured ones. **This is the one
-place where the tool's own output is not a measurement, and it is labelled as
-such by the tool itself, not by this paragraph.**
+The semantic layer can only *remove* hits, so `rule_v3+llm` keeps
+`rule_v3`'s recall — 10.0% (1/10), 95% CI [2%, 40%], identical to the rule
+layer's — no matter how good the model is. It removed 5 of the 6 hits and
+every one it removed was noise, so the single survivor is a true positive:/nprecision 100.0% (1/1), 95% CI [21%, 100%]. **That interval is the whole
+story** — one survivor is not evidence of a good gate, and we do not
+present it as one. A better model cannot fix a net that never caught the
+buyer, which is the entire reason `rule_v4` exists.
 
-The structural point survives the mock: the semantic layer can only *remove*
-hits, so `rule_v3+llm`'s recall can never exceed `rule_v3`'s 1/10. A better
-model cannot fix a net that never caught the buyer. That is the entire reason
-`rule_v4` exists.
-
-> **Do not read "≤" as "screening".** The bound holds here in the degenerate
-> way: the mock answers `false` to everything, so `rule_v3+llm` scores 0/10
-> because it *deleted all six hits*, not because it judged them and kept one.
-> On this page the only place the semantic layer is shown actually screening is
-> **Stage 2** below, where a real model ran. The column above is a placeholder
-> that refuses to invent a number, and it is labelled as one by the tool that
-> printed it.
+> **This table is a frozen replay of one real run** — `deepseek-v4-flash`,
+> 2026-09-27, on the frozen `einprag-2026-09-27` snapshot. It is
+> **offline-reproducible to the digit** (see the command above) and it is
+> **not a Nemotron result**. The 14 model responses behind it are committed
+> under `data/replay/einprag-2026-09-27/rule_v3_llm/`.
+>
+> Without `--replay` and without a key, the `rule_v3+llm` column reads
+> **0/10, not a number**: the deterministic mock answers `false` to
+> everything and deletes all six hits, and the report says so in three
+> separate lines rather than printing a plausible-looking percentage.
+> That is the tool refusing to invent a number — which is why this page
+> publishes the replay instead of the mock column.
 
 **Stage 2 — the opt-in v4 pipeline, `rule_v4` → `rule_v4+llm`:**
 
-```
-$ intentradar eval score --testset einprag-2026-09-27 \
-      --layers rule_v4,rule_v4+llm --min-score 3
-
-testset : einprag-2026-09-27   (frozen 2026-09-27)
-truth   : einprag-2026-09-27d  labels.csv sha256=2009ef74b2d1
-project : Einprag   min_score=3
-labels  : 211 rows · 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
-──────────────────────────────────────────────────────────────
-metric                      rule_v4 (v4.0.0)  rule_v4+llm (v4.5.0+llm)
-predicted                                 42                        11
-true positive                             10                         9
-false positive                            28                         0
-false negative                             0                         1
-precision                      26.3%  (10/38)             100.0%  (9/9)
-precision 95% CI                  [15%, 42%]               [70%, 100%]
-recall                       100.0%  (10/10)             90.0%  (9/10)
-recall 95% CI                    [72%, 100%]                [60%, 98%]
-F1                                     41.7%                     94.7%
-noise rate                    73.7%  (28/38)               0.0%  (0/9)
-unverified hits                            4                         2
-positives (n)                             10                        10
-──────────────────────────────────────────────────────────────
-llm: 0 calls · 0 errors · backend=n/a
-llm: 0 calls · 0 errors · backend=anthropic @ http://127.0.0.1:8787/v1 · model=deepseek-v4-flash
-note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they are excluded from every ratio above, not counted as 0.
-```
-
-**The same table, recomputed by a stranger with no endpoint.** The stage-2
-column above depends on a model nobody else can call, which would make "a
-stranger can recompute our number" false for the one column that matters. So the
-42 model responses are frozen into this repository, and `--replay` re-derives the
-table from them with no network and no key:
+The table below is the **only** copy of this result we publish. It is a frozen
+replay of one real run — `deepseek-v4-flash`, 2026-09-27, on the frozen
+`einprag-2026-09-27` snapshot — and it is **offline-reproducible to the digit**
+with the command shown, no key required. **It is not a Nemotron result.** The 42
+model responses behind it are committed under
+`data/replay/einprag-2026-09-27/rule_v4_llm/`. We publish one copy rather than
+also showing the live run's own output: two copies of the same table means one
+of them can drift, and that is exactly the failure this page has already made
+once.
 
 ```
 $ intentradar eval score --testset einprag-2026-09-27 \
@@ -315,12 +289,12 @@ llm: 42 calls · 0 errors · backend=REPLAYED from data/replay/einprag-2026-09-2
 note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they are excluded from every ratio above, not counted as 0.
 ```
 
-Two rows differ from the live block, and both are the point: the `REPLAYED —`
-banner on top, and `backend=REPLAYED … · model=deepseek-v4-flash` below. **A
-screenshot of this table carries its own provenance.** A test
-(`tests/test_replay.py`) replays the committed recording and compares every row
-of this block line by line, so the published table cannot drift from the
-reproducible one without the suite going red.
+Two rows exist only because this is a replay, and both are the point: the
+`REPLAYED —` banner on top, and `backend=REPLAYED … · model=deepseek-v4-flash`
+below. **A screenshot of this table carries its own provenance.** A test
+(`tests/test_replay.py`) replays the committed recordings and compares every row
+of both published tables line by line, so a published number cannot drift from
+the reproducible one without the suite going red.
 
 Each frozen response carries its post id, judge version, model, endpoint,
 timestamp, the sha256 of the exact prompt, and the raw response text — see

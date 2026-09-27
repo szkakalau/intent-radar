@@ -670,6 +670,35 @@ deliberately does **not** compare `why` or evidence: those are explanatory
 text, and comparing them would turn "the wording changed" into "the result
 changed", diluting what the test proves.
 
+### The live v4 table was deleted; the default command is now replayable too
+
+Two follow-ups on the same defect, both about the same thing: **a second copy
+of a table is a second place it can lie.**
+
+1. The README carried the v4 funnel table twice — the live run's own output and
+   the replay of it. The numbers were identical, so deleting the live copy lost
+   no fact, and keeping it kept a block that no test could ever check (a live
+   run cannot be reproduced offline). What was NOT deleted is the provenance:
+   a line above the table now states that it is a frozen replay of one real
+   deepseek-v4-flash run on 2026-09-27, offline-reproducible to the digit, and
+   not a Nemotron result.
+
+2. The default command — bare `eval score`, the one the README pushes first —
+   still produced a mock `rule_v3+llm` column reading 0/10. That is the most
+   prominent table on the page and it was the least reproducible. A default-tier
+   recording (`rule_v3_llm`, 14 responses) is now committed, and the README's
+   default block is the replay. Notably the recorded run served all 14 from the
+   response cache, so the frozen responses are exactly the ones that produced
+   the figure originally published — the number did not move, it became
+   checkable.
+
+The README comparison test is now parameterised over both tables, plus a test
+asserting **no replay block exists outside that list** — otherwise adding a
+third table would be a silent way to publish an un-checkable number with a green
+suite. `_scorer_for` deliberately passes no tuning arguments at all, so the test
+reproduces what `eval score` does rather than what a test author believes it
+does.
+
 ### A published tool-output block must carry its own provenance
 
 One defect, found earlier and now guarded: a report block in the README had been

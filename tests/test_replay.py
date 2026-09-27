@@ -307,10 +307,34 @@ def test_metric_rows_distinguish_a_rate_from_its_interval() -> None:
     assert rows["precision 95% CI"].startswith("precision 95% CI")
 
 
-@pytest.mark.skipif(
-    not COMMITTED_REPLAY.exists(), reason="no committed replay recording"
+# Every published table must be backed by a committed recording. Both the
+# shipping default and the v4 funnel are covered: the README's most prominent
+# command is the bare `eval score`, and leaving that one un-reproducible would
+# keep the loudest claim false for the table a stranger sees first.
+PUBLISHED_TABLES = (
+    # (recording dir, layers, min_score, a string that identifies its block)
+    ("rule_v3_llm", ("rule_v3", "rule_v3+llm"), None, "rule_v3+llm (v3.1.0+llm)"),
+    ("rule_v4_llm", ("rule_v4", "rule_v4+llm"), 3, "rule_v4+llm (v4.5.0+llm)"),
 )
-def test_the_committed_replay_reproduces_the_published_readme_table() -> None:
+
+
+def _scorer_for(layers: tuple[str, ...], store: Any) -> EvalScorer:
+    """Build a scorer for ``layers`` with the LLM stage served from ``store``.
+
+    Deliberately passes NO tuning arguments: the candidate bar and every other
+    knob stay at the CLI's defaults, so this reproduces what `eval score` does
+    rather than what a test author thinks it does.
+    """
+    judges: list[Any] = []
+    for layer in layers:
+        judges.append(get_judge(layer, store=store) if layer.endswith("+llm") else get_judge(layer))
+    return EvalScorer(judges)
+
+
+@pytest.mark.parametrize(("directory", "layers", "min_score", "marker"), PUBLISHED_TABLES)
+def test_every_published_table_matches_its_committed_replay(
+    directory: str, layers: tuple[str, ...], min_score: int | None, marker: str
+) -> None:
     """The table in the README is the table the replay actually prints.
 
     This is the guard for a defect already made once: a report block in the
@@ -319,32 +343,54 @@ def test_the_committed_replay_reproduces_the_published_readme_table() -> None:
     could not reproduce. Comparing the replayed output to the published block
     line by line makes that class of drift impossible to ship quietly.
     """
+    recording = REPO_ROOT / "data" / "replay" / DATASET_ID / directory
+    if not recording.exists():  # pragma: no cover - recordings ship with the repo
+        pytest.skip(f"no committed replay recording at {recording}")
+
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    published = [
-        block for block in _fenced_blocks(readme) if "REPLAYED —" in block
+    matching = [
+        block
+        for block in _fenced_blocks(readme)
+        if "REPLAYED —" in block and marker in block
     ]
-    assert published, (
-        "README has no replay block — the published LLM column cannot be checked"
+    assert matching, (
+        f"README has no replay block for {marker} — that table cannot be checked"
     )
-    expected = _metric_lines(published[0])
-    assert expected, "the replay block has no score table in it"
+    expected = _metric_lines(matching[0])
+    assert expected, f"the {marker} block has no score table in it"
 
     dataset = EvalDataset.load(DATASET_ID, TESTSET_DIR)
     project = Watchlist.load(WATCHLIST_PATH).get("Einprag")
-    store = ReplayStore.load(COMMITTED_REPLAY)
-    scorer, _ = _scorer(store=store)
+    store = ReplayStore.load(recording)
     actual = _metric_lines(
-        scorer.score(
-            dataset, project=project, min_score=3, replay_banner=store.banner()
-        ).render()
+        _scorer_for(layers, store)
+        .score(dataset, project=project, min_score=min_score, replay_banner=store.banner())
+        .render()
     )
 
     for name, expected_line in expected.items():
-        assert name in actual, f"the replay no longer prints a {name!r} row"
+        assert name in actual, f"the {marker} replay no longer prints a {name!r} row"
         assert actual[name] == expected_line, (
             f"README publishes\n  {expected_line!r}\nbut the committed replay prints\n"
             f"  {actual[name]!r}\nThe published table and the reproducible one have "
             "drifted apart. Re-record and update the README in the same commit."
+        )
+
+
+def test_every_replay_block_in_the_readme_is_checked() -> None:
+    """No published replay block may sit outside :data:`PUBLISHED_TABLES`.
+
+    Otherwise adding a third table is a silent way to publish an un-checkable
+    number while the suite stays green.
+    """
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    blocks = [b for b in _fenced_blocks(readme) if "REPLAYED —" in b]
+    assert blocks, "README has no replay block at all"
+    markers = [case[3] for case in PUBLISHED_TABLES]
+    for block in blocks:
+        assert any(marker in block for marker in markers), (
+            "a replay block in the README is not covered by PUBLISHED_TABLES — "
+            "it would be published without being checked"
         )
 
 
