@@ -28,12 +28,13 @@
   "min_score": 5,
   "cutoff_utc": 1790187320,
   "total_in_window": 211,
-  "label_version": "einprag-2026-09-27a",
+  "label_version": "einprag-2026-09-27b",
   "label_reviewer": "ai-draft",
   "label_counts": {
     "actionable": 8,
     "borderline": 28,
     "not_actionable": 175
   },
-  "label_changelog": "rev a: full-text re-review after discovering that a 650-char truncation during batch labeling hid intent statements. 1wp6ji1 borderline->actionable (full text: 'If I know how to import a list, I might switch... Is Anki better or another app?'). 1woxhua not_actionable->borderline (full text asks whether existing courses/textbooks/software build a curriculum from a target corpus). 1wqd2iq not_actionable->borderline (full text: forgets lengthy topics, 'If you have any solution, any suggestion, please comment'). All other labels unchanged; 211 rows verified."
+  "label_judgement_standard": "actionable requires ALL THREE: (1) need category is explicit - naming the CATEGORY is enough, a specific product name is not required; (2) the current approach is unmet and the author is actively seeking a solution - complaining about it plus asking, or actively asking for recommendations / alternatives / how to choose; (3) it is the author's own decision - they hold or share the decision. Watching the market, researching for someone else, promoting their own product, or hunting for content ideas does NOT count. Missing any one of the three -> borderline; clearly unrelated -> not_actionable. Ground truth is PER-TESTSET: consistency constraints apply only within one testset, never across testsets, because each testset has a different buyer.",
+  "label_changelog": "rev a: full-text re-review after discovering that a 650-char truncation during batch labeling hid intent statements. 1wp6ji1 borderline->actionable (full text: 'If I know how to import a list, I might switch... Is Anki better or another app?'). 1woxhua not_actionable->borderline (full text asks whether existing courses/textbooks/software build a curriculum from a target corpus). 1wqd2iq not_actionable->borderline (full text: forgets lengthy topics, 'If you have any solution, any suggestion, please comment'). All other labels unchanged; 211 rows verified. rev b: NO label changes - frozen. Only adds label_judgement_standard (three criteria + per-testset principle) so future annotations and external review use one documented standard. Counts unchanged at 8/28/175."
 }

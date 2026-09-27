@@ -28,12 +28,13 @@
   "min_score": 5,
   "cutoff_utc": 1790187469,
   "total_in_window": 137,
-  "label_version": "bootstrap-2026-09-27a",
+  "label_version": "bootstrap-2026-09-27c",
   "label_reviewer": "ai-draft",
   "label_counts": {
     "actionable": 2,
     "borderline": 9,
     "not_actionable": 126
   },
-  "label_changelog": "rev a: full-text re-review after a 650-char truncation during batch labeling hid intent statements in einprag. 1wqugoc not_actionable->borderline (full text ends 'how did you get your first few people to actually use it?'). All other labels unchanged; 137 rows verified."
+  "label_judgement_standard": "actionable requires ALL THREE: (1) need category is explicit - naming the CATEGORY is enough, a specific product name is not required; (2) the current approach is unmet and the author is actively seeking a solution - complaining about it plus asking, or actively asking for recommendations / alternatives / how to choose; (3) it is the author's own decision - they hold or share the decision. Watching the market, researching for someone else, promoting their own product, or hunting for content ideas does NOT count. Missing any one of the three -> borderline; clearly unrelated -> not_actionable. Ground truth is PER-TESTSET: consistency constraints apply only within one testset, never across testsets, because each testset has a different buyer.",
+  "label_changelog": "rev a: full-text re-review after a 650-char truncation during batch labeling hid intent statements in einprag; 1wqugoc not_actionable->borderline (full text ends 'how did you get your first few people to actually use it?'). rev b: 1wpda04 actionable->borderline on the grounds that no tool was named. rev c: 1wpda04 restored to actionable - rev b was a judgement error. The 'must name a product' test was wrong (the standard only requires naming the category), and it was applied by analogy to einprag posts 1wqss45/1woyfxm/1wqq2r3, which is invalid because ground truth is per-testset: those posts are not_actionable/borderline for a flashcard seller, but 'I need to find customers' is a core positive for a customer-acquisition tool. 1wplixs remains actionable (own unresolved buy-vs-build decision: 'Do you use a tool for it, or roll your own?' + 'before we go further down this road'). Labels: 2 actionable / 9 borderline / 126 not_actionable; 137 rows verified."
 }
