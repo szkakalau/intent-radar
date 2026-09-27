@@ -13,15 +13,21 @@ our number on their own machine with one command.
 > `eval score` prints precision / recall / F1 for **both**, each with raw counts,
 > the sample size, and a 95% Wilson interval.
 >
-> Read [Accuracy](#accuracy) before you trust any number here.
+> Read [Accuracy](#accuracy) before you trust any number here. The v4 pipeline
+> currently measures **100.0% precision (9/9)** and **90.0% recall (9/10)** on
+> einprag; the shipping `rule_v3` baseline measures **20.0% precision** and
+> **10.0% recall**. Every figure is tied to `label_version einprag-2026-09-27d`
+> and `labels.csv sha256=2009ef74b2d1`, both printed by the tool itself.
 >
-> ⚠️ **These figures are being re-measured — do not cite them yet.** The ground
-> truth moved to `rev d` (10 positives, previously 8) and one judging rule was
-> repaired, so every percentage below is a `rev c` measurement and is now stale.
-> The final numbers land in one commit, tied to a `label_version` **and** a
-> `sha256` of `labels.csv`, never quietly afterwards. We print the 95% Wilson
-> interval beside every rate, because at this sample size a bare percentage is
-> not a measurement.
+> ⚠️ **Sample size: 10 positives.** At that size the 95% interval on recall is
+> `[60%, 98%]` — wide enough that one relabelled row still moves the number by
+> ten points. We print the interval beside every rate rather than the bare
+> percentage, because a number without one is not a measurement.
+>
+> ⚠️ **Not Nemotron.** These figures come from `deepseek-v4-flash` over a local
+> dev proxy (see [Which model](#which-model-produced-the-stage-2-numbers)).
+> Re-measuring on Nebius/Nemotron is pending; nothing here may be quoted as a
+> Nemotron result.
 
 ---
 
@@ -72,7 +78,10 @@ uv run intentradar eval run --testset einprag-2026-09-27
 | `intentradar eval snapshot` | Freeze a new testset from a live collection run |
 | `intentradar budget` | Show / reset monthly usage |
 
-Common flags: `eval score --layers rule_v4,rule_v4+llm --min-score 3`.
+`eval score` reads the threshold from the dataset's own `meta.json` — it is not
+a flag you should be tuning. `--layers` is the one option that matters:
+`eval score --layers rule_v4,rule_v4+llm` compares the v4 funnel instead of the
+shipping default.
 
 Exit codes: `0` ok · `1` evaluation mismatch · `2` config/credential · `3` gate/budget · `4` provider.
 
@@ -95,7 +104,7 @@ hit rate                2.8%
 noise rate = (# hits a human marks 'not actionable') / (# hits)
 reviewed hits           5/6   (1 undecided: borderline/blank)
 noise rate              80.0%
-ground truth: 183 labeled (8 actionable / 175 not) · 0 unlabeled · 28 borderline
+ground truth: 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
 → full precision / recall: `eval score --testset einprag-2026-09-27`
 expected 6 hits: MATCH
 ```
@@ -105,6 +114,13 @@ of it a human has actually adjudicated. 5 of the 6 hits carry a verdict and 4 of
 those are `not_actionable` — 80.0% noise, which is the same number `eval score`
 prints as `1 - precision`. The 6th hit sits on a `borderline` row and is counted
 as undecided rather than silently folded into either side.
+
+> **What `min_score` means.** The threshold (`5` for this snapshot) is locked in
+> `meta.json`, not passed on the command line — run `eval score` and it reads the
+> dataset's own value. A score of 5 means *"worth a human look"*, **not** *"this
+> person is a buyer"*: at this threshold `rule_v3` finds 10% of the buyers and
+> 4 of its 6 hits are rejected on review. Treating the threshold as a confidence
+> score is the easiest way to misread everything below.
 
 **Baseline X = the rule layer.** Snapshot `einprag-2026-09-27` contains every post
 in a 3-day window across 5 subreddits; `rule_v3` flags 6 of them. Run the command
@@ -151,8 +167,8 @@ scores each layer against the human ground truth in
 `data/testset/<id>/labels.csv`.
 
 **Every rate is printed with its raw counts, the sample size, and a 95% Wilson
-confidence interval.** This is deliberate: einprag has **8 positive examples**,
-so one relabelled row moves precision by 12 points. `rule_v3`'s precision is
+confidence interval.** This is deliberate: einprag has **10 positive examples**,
+so one relabelled row moves recall by ten points. `rule_v3`'s precision is
 `20.0%` with a 95% CI of `[4%, 62%]` — which is the honest way of saying "on
 this sample you have learned almost nothing". We publish the error bar rather
 than the bare percentage because a number without one is not a measurement.
@@ -163,30 +179,31 @@ than the bare percentage because a number without one is not a measurement.
 $ intentradar eval score --testset einprag-2026-09-27
 
 testset : einprag-2026-09-27   (frozen 2026-09-27)
-truth   : einprag-2026-09-27c  labels.csv sha256=4ecc9c5d1569
+truth   : einprag-2026-09-27d  labels.csv sha256=2009ef74b2d1
 project : Einprag   min_score=5
-labels  : 211 rows · 183 labeled (8 actionable / 175 not) · 0 unlabeled · 28 borderline
+labels  : 211 rows · 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
 ──────────────────────────────────────────────────────────────
 metric                      rule_v3 (v3.0.0)  rule_v3+llm (v3.1.0+llm)
-predicted                                  6                         0
-true positive                              1                         0
+predicted                                  6                         1
+true positive                              1                         1
 false positive                             4                         0
-false negative                             7                         8
-precision                       20.0%  (1/5)                         -
-precision 95% CI                   [4%, 62%]                         -
-recall                          12.5%  (1/8)               0.0%  (0/8)
-recall 95% CI                      [2%, 47%]                 [0%, 32%]
-F1                                     15.4%                         -
-noise rate                             80.0%                         -
+false negative                             9                         9
+precision                       20.0%  (1/5)             100.0%  (1/1)
+precision 95% CI                   [4%, 62%]               [21%, 100%]
+recall                         10.0%  (1/10)             10.0%  (1/10)
+recall 95% CI                      [2%, 40%]                 [2%, 40%]
+F1                                     13.3%                     18.2%
+noise rate                             80.0%                      0.0%
 unverified hits                            1                         0
-positives (n)                              8                         8
+positives (n)                             10                        10
 ```
 
-`rule_v3` is a regex heuristic and it behaves like one: of the 8 posts a
+`rule_v3` is a regex heuristic and it behaves like one: of the 10 posts a
 reviewer marked actionable it finds 1, and 4 of its 6 hits are marked
-`not_actionable`. The `rule_v3+llm` column here is **not a measurement** — with
-no API key the semantic layer runs against the deterministic mock, and the
-report says so in as many words.
+`not_actionable`. Its recall is bounded by the fact that **the net under it is
+too narrow** — the semantic layer can only remove hits, so `rule_v3+llm` keeps
+`rule_v3`'s 1/10 recall no matter how good the model is. That is the entire
+reason `rule_v4` exists.
 
 **Stage 2 — the opt-in v4 pipeline, `rule_v4` → `rule_v4+llm`:**
 
@@ -194,85 +211,103 @@ report says so in as many words.
 $ intentradar eval score --testset einprag-2026-09-27 \
       --layers rule_v4,rule_v4+llm --min-score 3
 
-metric                      rule_v4 (v4.0.0)  rule_v4+llm (v4.3.0+llm)
-predicted                                 42                        14
-true positive                              8                         8
-false positive                            29                         3
-false negative                             0                         0
-precision                      21.6%  (8/37)             72.7%  (8/11)
-precision 95% CI                  [11%, 37%]                [43%, 90%]
-recall                         100.0%  (8/8)             100.0%  (8/8)
-recall 95% CI                    [68%, 100%]               [68%, 100%]
-F1                                     35.6%                     84.2%
-noise rate                             78.4%                     27.3%
+testset : einprag-2026-09-27   (frozen 2026-09-27)
+truth   : einprag-2026-09-27d  labels.csv sha256=2009ef74b2d1
+project : Einprag   min_score=3
+──────────────────────────────────────────────────────────────
+metric                      rule_v4 (v4.0.0)  rule_v4+llm (v4.5.0+llm)
+predicted                                 42                        11
+true positive                             10                         9
+false positive                            28                         0
+false negative                             0                         1
+precision                      26.3%  (10/38)             100.0%  (9/9)
+precision 95% CI                  [15%, 42%]               [70%, 100%]
+recall                       100.0%  (10/10)             90.0%  (9/10)
+recall 95% CI                    [72%, 100%]                [60%, 98%]
+F1                                     41.7%                     94.7%
+noise rate                             73.7%                      0.0%
+unverified hits                            4                         2
+positives (n)                             10                        10
 ```
 
 This is the two-stage funnel, and it is the core of the design:
 
 | stage | candidates | precision | recall |
 |---|---|---|---|
-| `rule_v4` — wide net | 42 | 21.6% | **100%** |
-| `rule_v4+llm` — semantic gate | 14 | **72.7%** | **100%** |
+| `rule_v4` — wide net | 42 | 26.3% | **100%** |
+| `rule_v4+llm` — semantic gate | 11 | **100.0%** | 90.0% |
 
 The rule layer is a **net, not a decider**: it is deliberately over-inclusive
-and costs nothing, so it can afford 100% recall at 21.6% precision. The LLM
-gate then removes 28 of the 42 candidates. **Recall does not move; precision
-goes up 3.4×.** A single-stage scorer has to trade one against the other.
+and costs nothing, so it can afford 100% recall at 26.3% precision. The LLM
+gate then removes 31 of the 42 candidates and **zero** of its 11 survivors are
+marked `not_actionable`. A single-stage scorer has to trade precision against
+recall; splitting the job in two means only the cheap stage has to be greedy.
 
-> **Which model produced the stage-2 numbers.** They come from
-> **`deepseek-v4-flash`, reached through a local Anthropic-shaped dev proxy**
-> (`http://127.0.0.1:8787/v1/messages`). That is a development verification
-> channel, **not** the hackathon's target model. Every run prints
-> `backend=… · model=…` so these figures can never be mistaken for
-> Nebius/Nemotron numbers by accident. Re-measuring on Nebius is pending.
-> (A re-run served from the response cache reports `0 calls`; the first run
-> made 42.)
+> **Why `--min-score 3` appears here and nowhere else.** It is not a tuning
+> knob: 3 is `rule_v4`'s documented candidate bar (`CANDIDATE_MIN_SCORE`), the
+> point at which a post has enough rule evidence to be worth spending a model
+> call on. The v4 numbers are only meaningful at that bar, so it is stated in
+> the command rather than left implicit. For the default `rule_v3` path the
+> threshold comes from `meta.json` and no flag is needed.
 
-> **Sample size, stated up front.** n=8 positives, einprag. `precision 72.7%
-> 95% CI [43%, 90%]`. A pending round of ground-truth adjudication raises the
-> positive count 8 → 10 and moves these figures; this page will be refreshed in
-> the same commit as that batch, not quietly afterwards. **The expected move
-> (72.7% → 80.0%) is a relabelling effect, not a model improvement** — see
-> [Failure cases](#failure-cases-are-published).
+**One miss, named.** The single false negative is `1woxhua`, which the model
+reads as *"musing whether it would be possible to design a curriculum"* rather
+than a request for something to acquire. The reviewer disagrees — the post
+names courses, textbooks and software — so this is logged as a model error, not
+tuned away: rewriting the prompt to catch one post is fitting the rule to the
+example, and it would not generalise. See
+[Failure cases](#failure-cases-are-published).
 
-> **Version discipline.** The stage-2 numbers above are **`v4.3.0+llm`**.
-> `v4.4.0+llm` exists and is **unmeasured**: it syncs the rest of
-> `label_judgement_standard` into the prompt — criterion (1) judged by *demand
-> domain* rather than SKU, and rules (a) free-only, (b) research-stage, (c)
-> first-person build-vs-buy. It will be measured in the same run as the pending
-> batch. Until then its number is "unknown", and unknown is not 72.7%.
+### Which model produced the stage-2 numbers
+
+They come from **`deepseek-v4-flash`, reached through a local Anthropic-shaped
+dev proxy** (`http://127.0.0.1:8787/v1/messages`). That is a development
+verification channel, **not** the hackathon's target model, and nothing here may
+be quoted as a Nebius/Nemotron result. Every run prints `backend=… · model=…`
+and `config check` prints the resolved endpoint, so a figure cannot be
+mis-attributed by accident. Re-measuring on Nebius is pending. (A re-run served
+from the response cache reports `0 calls`; the run above made 42.)
+
+### Version discipline
+
+The stage-2 numbers above are **`v4.5.0+llm`**, and the version is part of the
+number — the same version string never means two different criteria.
+
+| version | status |
+|---|---|
+| `v4.2.0+llm` | **recalled** — required a specific product name, which the written standard forbids. Its numbers are published only as the cost of that bug. |
+| `v4.3.0+llm` | superseded |
+| `v4.4.0+llm` | superseded — synced the standard, but its rule (b) misclassified `1wpsql7` (see [Failure cases](#failure-cases-are-published)) |
+| **`v4.5.0+llm`** | current — rule (b)'s test sentence replaced |
 
 ### When the sample is too small: `eval density`
 
-At n=8 the correct move is not to polish the ratio, it is to change the unit of
-analysis. `eval density` breaks the ground truth down by subreddit, so you can
-see **where** the positives live and which sources produced nothing at all:
+Ten positives is still a small sample, and the right response is to change the
+unit of analysis rather than polish the ratio. `eval density` breaks the ground
+truth down by subreddit, so you can see **where** the positives live and which
+sources produced almost nothing:
 
 ```
 $ intentradar eval density --testset einprag-2026-09-27
 
 testset : einprag-2026-09-27   project: Einprag
-truth   : einprag-2026-09-27c  labels.csv sha256=4ecc9c5d1569
+truth   : einprag-2026-09-27d  labels.csv sha256=2009ef74b2d1
 ──────────────────────────────────────────────────────────────
 sub                 posts  actionable  borderline  unreviewed   density
-languagelearning       23           3           3           0     13.0%
+languagelearning       23           4           2           0     17.4%
 Anki                   43           3           4           0      7.0%
 medicalschool          47           1           4           0      2.1%
 premed                 48           1           2           0      2.1%
-GetStudying            50           0          15           0      0.0%
+GetStudying            50           1          15           0      2.0%
 ──────────────────────────────────────────────────────────────
-TOTAL                 211           8          28           0      3.8%
-
-Only 8 actionable post(s) in 211. A precision / recall figure on this few
-positives is noise — one sample flipping moves it by 12 points.
-Zero-actionable subreddits: GetStudying
+TOTAL                 211          10          27           0      4.7%
 ```
 
-6 of the 8 positives come from two subreddits; `GetStudying` supplied 50 posts
-and **zero** positives, with 15 rows the reviewer could not decide. That is a
-statement about the data that survives a relabelling, where "precision 72.7%"
-does not. `eval score` refuses to print a bare ratio once positives drop below
-10 and points here instead.
+7 of the 10 positives come from two subreddits; `GetStudying` supplied 50 posts
+for **one** positive and left 15 rows the reviewer could not decide. Density is
+the more durable statement — it survives a relabelling, where a precision
+percentage does not. `eval score` refuses to print a bare ratio once positives
+drop below 10 and points here instead.
 
 ### How every number is defined (口径)
 
@@ -295,16 +330,16 @@ the contract — change one and the number is no longer comparable.
 Two consequences worth reading twice:
 
 1. **`predicted` ≠ precision's denominator.** `rule_v4` predicts 42 but scores
-   `8/37`: five of the 42 sit on `borderline`/blank rows and cannot be judged
-   either way. Quoting 8/42 (19.0%) instead of 8/37 (21.6%) would be a
+   `10/38`: four of the 42 sit on `borderline`/blank rows and cannot be judged
+   either way. Quoting 10/42 (23.8%) instead of 10/38 (26.3%) would be a
    different, silently pessimistic number.
 2. **A blank or `borderline` row is never turned into `not_actionable`.** Doing
    so would manufacture false positives and *inflate* precision — the one
    direction of error that looks good in a README.
 
-Wilson, not the normal approximation: at n=8 the textbook interval returns
-bounds outside `[0, 1]`, which is how people end up publishing "precision
-100% ± 40%".
+Wilson, not the normal approximation: on samples this small the textbook
+interval returns bounds outside `[0, 1]`, which is how people end up publishing
+"precision 100% ± 40%".
 
 ### How the ground truth is handled
 
@@ -328,35 +363,60 @@ against a state of the file that no longer existed.
 
 The criteria a reviewer applies live in
 `data/testset/<id>/meta.json` → `label_judgement_standard`, and are quoted
-verbatim into the judge's prompt. A test asserts the two stay in sync, so the
-model is never graded against criteria that exist only in a chat message.
+verbatim into the judge's prompt. Two tests hold that line: one asserts the
+prompt still implements the standard's rules, and another asserts the ids the
+standard cites as settled precedents still carry those labels in `labels.csv`.
+A precedent that contradicts its own ground truth is worse than no precedent,
+because the prompt is synced from that text.
+
+**Audit coverage, stated plainly.** The einprag denominator (211 rows) has been
+through a full reverse audit. The **bootstrap denominator has not** — a
+57-row reverse audit there is still owing, blocked on reviewer quota. So every
+precision/recall figure on this page is an **einprag-only** measurement, and
+bootstrap contributes a density table rather than a rate. "We audited one side"
+is worth more than "we audited everything", and the second is not true yet.
 
 ### Failure cases are published
 
 A hit rate alone is meaningless without the misses, so every false negative and
 false positive gets audited individually and written up in
 [`SIGNIFICANT_UPDATES.md`](SIGNIFICANT_UPDATES.md) — including the ones that
-were our fault. Two examples from this project, both recorded there:
+were our fault. Three from this project, all recorded there:
 
-- A judge version (`v4.2.0`) dropped recall from 100% to 62.5% because the
-  prompt required a **specific product name** while the written standard only
-  required the **category** to be explicit. We reported it as a precision/recall
-  trade-off. It was a bug — the prompt had been written from a paraphrase in a
-  chat message instead of from `label_judgement_standard`. The version is
-  retired and its numbers are published only as the cost of that bug, never as
-  a result.
-- A pending relabelling will move stage-2 precision from **72.7% (8/11)** to
-  **80.0% (8/10)** with the model unchanged — a *relabelling effect*, not a
-  model improvement, and it must never be reported as the next version being
-  better. An earlier draft of that note said 88.9%, on the assumption that two
-  rows would move; the team lead overruled one of them (`1wq5s03` stays
-  `not_actionable`), so only one moves and the figure is 80.0%. Both the
-  correction and the overrule are recorded.
+- **A trade-off that was actually a bug.** Judge version `v4.2.0` dropped recall
+  from 100% to 62.5% because the prompt required a **specific product name**
+  while the written standard only required the **category** to be explicit. We
+  reported it as a precision/recall trade-off. It was a bug — and identifying a
+  bug as a trade-off is the more dangerous error, because a trade-off gets
+  accepted and a bug gets fixed. Root cause: the prompt was written from a
+  paraphrase in a chat message instead of from `label_judgement_standard`.
+  `v4.2.0` is retired; its numbers are published only as the cost of the bug.
+- **A rule that contradicted its own ground truth.** `v4.4.0` synced the
+  standard faithfully, including rule (b) — *"asking others about their
+  experience is research stage"*. Applied literally, it rejected `1wpsql7`:
+  someone weighing a **paid subscription** who asks existing users "is it worth
+  it?". The standard's own precedent list calls that post a confirmed
+  actionable. Rather than accept it as a precision/recall trade, rule (b)'s test
+  sentence was replaced outright — from *"is the author talking to people"* to
+  *"is the author making an adoption decision for themselves"*. That took
+  `v4.5.0` from 88.9%/80% to **100% precision / 90% recall** and removed the
+  last false positive.
+- **A figure corrected after it was written.** A pending relabelling was first
+  reported as moving precision to 88.9%, on the assumption two rows would move.
+  The team lead overruled one of them (`1wq5s03` stays `not_actionable`), so it
+  was 80.0%, not 88.9%. Both the correction and the overrule are recorded; the
+  number was not quietly edited.
+
+**The one remaining miss is `1woxhua`**, and we are leaving it in. The model
+reads it as musing about curriculum design; the reviewer says it names courses,
+textbooks and software. Rewriting the prompt until it catches that post would be
+fitting the rule to one example — it would pass this testset and generalise
+worse. So it stays a false negative, named, in the ledger.
 
 If the semantic layer had failed to beat the baseline, that would be published
 too — the point of the tool is that the number can be recomputed, so a
- favourable number nobody can check is worth less than an unfavourable one
- anyone can.
+favourable number nobody can check is worth less than an unfavourable one anyone
+can.
 
 ### What "evidence" looks like
 

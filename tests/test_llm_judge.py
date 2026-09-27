@@ -169,10 +169,56 @@ def test_prompt_implements_rules_a_b_and_c() -> None:
     assert "roll your own" in lowered
     assert "off the shelf" in lowered
     # (c) is explicitly distinguished from (b), or the two collide.
-    assert "this differs from rule (b)" in lowered
+    assert "rules (b) and (c) ask different questions" in lowered
     # The three rules are labelled (a)/(b)/(c) so a reader can map them back.
     for marker in ("(a)", "(b)", "(c)"):
         assert marker in SYSTEM_PROMPT, marker
+
+
+def test_rule_b_tests_the_decision_not_the_conversation() -> None:
+    """Rule (b)'s test is "deciding for themselves", not "talking to people".
+
+    v4.4.0's wording made the model reject 1wpsql7 — someone weighing a paid
+    subscription who asks existing users "is it worth it?" — as "research
+    stage". That reading is wrong on the standard's own terms: the author is
+    making an adoption decision for themselves. Team-lead ruled: replace the
+    test sentence, do not bolt on a carve-out. Both directions are pinned.
+    """
+    lowered = _flat(SYSTEM_PROMPT)
+    # The new test sentence, stated as what it is AND what it is not.
+    assert "making an adoption / purchase decision for themselves" in lowered
+    assert 'the test is not "is the author talking to other people"' in lowered
+    assert "am i testing whether the author is deciding for themselves" in lowered
+    assert "the first is the test; the second is not" in lowered
+
+    # Asking existing users about a NAMED product is how you decide to adopt it.
+    assert "is it worth it?" in lowered
+    assert "does satisfy criterion (3)" in lowered
+
+    # The two things that must STILL be false.
+    assert "asking on behalf of someone else" in lowered
+    assert "market research" in lowered
+
+    # The standard's canonical FALSE example is still there — but labelled as
+    # false because of the missing decision, not because of the phrasing.
+    assert "anyone have experiences with x?" in lowered
+    assert "no adoption" in lowered and "decision of the author's own" in lowered
+    # The old rule ("asking others about experience -> false, full stop").
+    assert '"anyone have experiences" = no' not in lowered
+
+
+def test_community_opinion_bullet_agrees_with_rule_b() -> None:
+    """The older bullet used to be the other half of the 1wpsql7 bug.
+
+    "Asking a community for opinions is only intent if the opinion is 'which
+    thing should I get/use'" excludes "is X worth it?", which rule (b) now
+    accepts. Two bullets in one prompt must not say opposite things.
+    """
+    lowered = _flat(SYSTEM_PROMPT)
+    assert "is x worth it?" in lowered
+    assert "deciding whether to adopt something themselves" in lowered
+    # The old, narrower rule is gone.
+    assert "is only intent if the opinion being asked" not in lowered
 
 
 def test_prompt_forbids_private_exclusion_reasons() -> None:

@@ -152,25 +152,40 @@ Additional rules, all of them part of the standard:
       to pay, so this is NOT purchase intent: answer false. Do not treat it as
       "clearly unrelated": the need may be real and in domain, only the
       willingness to pay is missing.
-  (b) RESEARCH STAGE — asking others about their experience ("anyone have
-      experiences with X", "did it work for you?") evaluates an approach and
-      does not yet seek a solution for the asker: answer false. The test for
-      (3) is whether the author themselves is making the decision ("before we
-      go further down this road" = yes; "anyone have experiences" = no).
+  (b) RESEARCH STAGE — the test is NOT "is the author talking to other
+      people", it is "is the author making an adoption / purchase decision
+      FOR THEMSELVES". The same wording can go either way, so decide on the
+      decision, not on the phrasing:
+        FALSE — asking whether an approach works at all, with no adoption
+                decision of the author's own behind it ("does this method
+                work?", "anyone have experiences with X?", "did it work for
+                you?"). [fails (3)]
+        TRUE  — asking existing users what a specific named product is like
+                while the author is weighing adopting it ("have any of you
+                used X — is it worth it?"). That IS the author's own
+                adoption decision, and DOES satisfy criterion (3).
+      Self-check before answering: "am I testing whether the author is
+      deciding for themselves, or whether they are talking to someone?"
+      The first is the test; the second is not.
+      Still false: asking on behalf of someone else, and market research
+      ("what do people want?") — the author holds no decision of their own.
   (c) BUILD-VS-BUY — a first-person build-vs-buy question ("do you use a tool
       for it, or roll your own?", "should I build this or buy it?", "is there
       something off the shelf?") DOES satisfy criterion (2): the author is
       actively seeking a solution to their own unmet need, because they are
       explicitly weighing the purchase option. The test is whether the ask
       puts BUYING on the table as one of the options the author is choosing
-      between. This differs from rule (b): "does this approach work at all?"
-      is research, "should I buy it or build it?" is not.
+      between. Rules (b) and (c) ask different questions: (b) is whether the
+      author is deciding FOR THEMSELVES, (c) is whether BUYING is one of the
+      options on the table. Both can hold at once.
   * Do NOT reject merely because the author is a founder, builder, or has
     already started building — see rule (c). The line is whether THEY hold
     the purchase decision. Asking others what the market wants is research.
   * A question mark, urgency, or exclamation marks are NOT evidence of intent.
-  * Asking a community for opinions is only intent if the opinion being asked
-    for is "which thing should I get/use".
+  * Asking a community for opinions is intent when the author is deciding
+    whether to adopt something THEMSELVES — "which one should I get?" and also
+    "is X worth it?" about a named product. It is NOT intent when they are
+    surveying what other people want (see rule (b)).
   * If you are unsure, answer false. Precision matters more than recall here.
 
 Reply with ONE JSON object and nothing else — no markdown, no prose:

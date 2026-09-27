@@ -43,9 +43,16 @@ LAYER_RULE_V4_LLM = "rule_v4+llm"
 # -> false, (b) research stage -> false, (c) first-person build-vs-buy
 # SATISFIES criterion (2). Also states that every rejection reason must map to
 # one of the three criteria, so no private standard can creep back in.
+# v4.5.0+llm: rule (b) REWRITTEN — its test sentence is now "is the author
+# making an adoption / purchase decision FOR THEMSELVES", not "is the author
+# talking to other people". v4.4.0's wording made the model reject 1wpsql7
+# (someone weighing a paid subscription, asking existing users "is it worth
+# it?") as "research stage", which contradicted both the label and the
+# standard's own precedent list. Self-check line added, and the "asking a
+# community for opinions" bullet brought in line with it.
 # The prompt IS the rule, so the version moves with it: the same version string
 # must never mean two different criteria.
-JUDGE_VERSION_V4_LLM = "v4.4.0+llm"
+JUDGE_VERSION_V4_LLM = "v4.5.0+llm"
 
 
 class Signal(StrEnum):

@@ -545,15 +545,77 @@ under their own version. Five new tests pin the synced wording, including one
 that cross-checks each rule against `meta.json`, so the prompt and the standard
 cannot drift apart silently again.
 
+### `v4.5.0+llm`: rule (b) rewritten — a rule that contradicted its own ground truth
+
+`v4.4.0` synced `label_judgement_standard` faithfully, including rule (b):
+
+> Asking others about their experience ("anyone have experiences with X") is a
+> research stage and does NOT satisfy criterion (3) → borderline.
+
+Applied literally, the model used it to reject **`1wpsql7`** — someone actively
+weighing a **paid subscription** who asks existing users "is it worth it?" —
+as *"research-stage evaluation rather than actively seeking a solution"*.
+But `1wpsql7` is labelled **actionable**, and the same standard's own precedent
+list names it as a confirmed actionable. The standard was contradicting itself,
+and the prompt had carried the contradiction straight through to the model.
+
+**Reported as a recall drop and diagnosed, not accepted as a trade-off.** Two
+false negatives were pulled individually: `1wpsql7` (rule (b), our bug) and
+`1woxhua` (a genuine model/reviewer disagreement).
+
+Team-lead's ruling: **replace the test sentence, do not bolt on a carve-out.**
+Rule (b) now reads — the test is *not* "is the author talking to other people",
+it is *"is the author making an adoption / purchase decision FOR THEMSELVES"*,
+with an explicit self-check line and both directions pinned by tests:
+`1wpsql7` satisfies criterion (3); asking on behalf of someone else and market
+research are still false. The same wording can go either way, so the prompt now
+says to decide on the decision, not on the phrasing.
+
+Two **other** lines in the prompt were saying the opposite and had to be fixed
+at the same time, or the fix would have been half-applied:
+- *"Asking a community for opinions is only intent if the opinion is 'which
+  thing should I get/use'"* — excludes "is X worth it?", which rule (b) now
+  accepts.
+- rule (c)'s *"this differs from rule (b)"* — rewritten so (b) and (c) are
+  stated as different questions that can both hold, rather than as alternatives.
+
+Result, `labels.csv sha256=2009ef74b2d1` (rev d, 10 positives), einprag:
+
+| | `v4.4.0+llm` | `v4.5.0+llm` |
+|---|---|---|
+| precision | 88.9% (8/9) | **100.0% (9/9)** |
+| recall | 80.0% (8/10) | **90.0% (9/10)** |
+| false positives | 1 | **0** |
+| false negatives | 2 | **1** |
+
+`1wpsql7` recovered and the last false positive disappeared. The one remaining
+FN, `1woxhua`, is **left in on purpose** — the model reads it as musing about
+curriculum design, the reviewer reads it as naming courses/textbooks/software.
+Rewriting the prompt until it catches that post fits the rule to one example;
+it would pass this testset and generalise worse.
+
 ### Staged figures in the README
 
-The README's numbers are published **staged at n=8** and flagged as pending a
-ground-truth batch, rather than left as placeholders until the batch lands. The
+The README's numbers were published **staged at n=8** and flagged as pending a
+ground-truth batch, rather than left as placeholders until the batch landed. The
 old Status block advertised "precision 0%", which was a number from before
-`eval score` existed and no longer reproduced; it now states the measured
-20.0% (1/5) / 12.5% (1/8) with their 95% Wilson intervals and an explicit
-"sample size n=8, pending batch" warning. Every figure will be refreshed **in
-the same commit as the pending adjudication**.
+`eval score` existed and no longer reproduced.
+
+The batch has since landed (`rev d`, 10 positives) and the README now carries
+**final, re-measured** figures: `rule_v3` 20.0% precision / **10.0% recall
+(1/10)** — note the recall moved from 12.5% to 10.0% because the denominator
+grew from 8 to 10 while the true positive count stayed at 1 — and the v4 funnel
+at **100.0% precision (9/9) / 90.0% recall (9/10)** under `v4.5.0+llm`. Every
+figure is tied to `label_version` + `labels.csv sha256`, both printed by the
+tool. Also disclosed: **the bootstrap denominator has not been reverse-audited
+yet** (57-row audit owing, blocked on reviewer quota), so all rates on the page
+are explicitly einprag-only.
+
+`--min-score` is no longer taught as a tuning flag: `eval score` reads the
+threshold from `meta.json`, with the single exception of `rule_v4`'s documented
+candidate bar (3), which is explained as a property of the layer rather than a
+knob. A "what `min_score` means" note states that a score of 5 means *"worth a
+human look"*, not *"this person is a buyer"*.
 
 ---
 
