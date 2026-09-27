@@ -344,6 +344,30 @@ and `config check` prints the resolved endpoint, so a figure cannot be
 mis-attributed by accident. Re-measuring on Nebius is pending. (A re-run served
 from the response cache reports `0 calls`; the run above made 42.)
 
+**How that model name was checked — and why we do not let a model name itself.**
+A liveness probe through the same proxy replied `Hello, I'm ChatGPT.` while the
+configuration says `deepseek-v4-flash`. A model's self-description is not
+evidence of what it is, so we trusted neither statement: the attribution above
+is established at the **transport layer** instead. Both dev proxies on the
+machine that produced these numbers declare `api.deepseek.com` as their upstream
+target, and both were listening on `127.0.0.1:8787` / `127.0.0.1:8788`:
+
+```bash
+grep -nE "TARGET_HOST|host: 'api" ~/.claude/ds-proxy.js ~/.claude/vision-router.js
+# ds-proxy.js:9        const TARGET_HOST = 'api.deepseek.com';
+# vision-router.js:27  host: 'api.deepseek.com',
+```
+
+So these numbers are attributed by **configured slug + verified upstream host**,
+never by what the model says about itself — and the contradiction is left
+visible rather than quietly resolved.
+
+⚠️ **Limits of that check.** It is evidence about the machine that produced the
+numbers, not something a stranger can redo from this repo — you can replay the
+responses below, but you cannot re-inspect our proxy. We publish the check and
+its limits together, because a provenance claim that overstates its own
+reachability is just another uncheckable number.
+
 ### Version discipline
 
 The stage-2 numbers above are **`v4.5.0+llm`**, and the version is part of the
