@@ -74,6 +74,7 @@ class EvalReport:
     expected: list[dict[str, Any]] = field(default_factory=list)
     expected_match: bool = True
     snapshot_date: str = ""
+    label_set: LabelSet | None = None
 
     @property
     def hit_count(self) -> int:
@@ -100,14 +101,45 @@ class EvalReport:
             f"{'hit rate':<24}{self.hit_rate_pct}%",
             "─",
             "noise rate = (# hits a human marks 'not actionable') / (# hits)",
-            "no manual review included in this run "
-            f"(see data/testset/{self.testset_id}/labels.csv)",
-            "→ full accuracy incl. human review is delivered in W2 (`eval score`)",
         ]
+        lines.extend(self._render_review())
         if self.expected:
             status = "MATCH" if self.expected_match else "MISMATCH"
             lines.append(f"expected {len(self.expected)} hits: {status}")
         return "\n".join(lines)
+
+    def _render_review(self) -> list[str]:
+        """Human-review coverage of *this* hit set, stated as counts.
+
+        This block used to hard-print "no manual review included in this run"
+        and promise the number in W2. The review landed and the string became
+        false — and it is the kind of false string a README quotes verbatim, so
+        it now reports what is actually in ``labels.csv``.
+        """
+        labels = self.label_set
+        if labels is None or labels.rows == 0:
+            return [
+                f"no labels.csv for {self.testset_id} — hit rate only, "
+                "no human review to report",
+                "→ scored precision / recall: "
+                f"`eval score --testset {self.testset_id}`",
+            ]
+
+        decided = [lead.post.id for lead in self.hits if lead.post.id in labels.labels]
+        noise = sum(1 for pid in decided if not labels.labels[pid])
+        undecided = [lead.post.id for lead in self.hits if lead.post.id in labels.undecided_ids]
+        lines = [
+            f"{'reviewed hits':<24}{len(decided)}/{self.hit_count}"
+            f"   ({len(undecided)} undecided: borderline/blank)",
+            f"{'noise rate':<24}"
+            + (f"{round(noise / len(decided) * 100, 1)}%" if decided else "-"),
+            f"ground truth: {labels.labeled} labeled "
+            f"({labels.positives} actionable / {labels.negatives} not) "
+            f"· {labels.unlabeled} unlabeled · {labels.borderline} borderline",
+            "→ full precision / recall: "
+            f"`eval score --testset {self.testset_id}`",
+        ]
+        return lines
 
 
 @dataclass
@@ -342,6 +374,7 @@ class EvalRunner:
             expected=expected,
             expected_match=match,
             snapshot_date=str(dataset.meta.get("snapshot_date", "")),
+            label_set=dataset.load_labels(),
         )
 
     # ── exports ────────────────────────────────────────────────────────────

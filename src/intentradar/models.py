@@ -37,9 +37,15 @@ LAYER_RULE_V4_LLM = "rule_v4+llm"
 # v4.3.0+llm: implements the authoritative standard — three conditions
 # (category explicit / unmet and actively seeking / author's own decision) with
 # CATEGORY enumerated as product, service, way-or-solution, or capability.
+# v4.4.0+llm: syncs the rest of the standard that the labeler has since written
+# into meta.json — criterion (1) judged by DEMAND DOMAIN rather than SKU (with
+# per-project domain text), the two ways (1) can fail, and rules (a) free-only
+# -> false, (b) research stage -> false, (c) first-person build-vs-buy
+# SATISFIES criterion (2). Also states that every rejection reason must map to
+# one of the three criteria, so no private standard can creep back in.
 # The prompt IS the rule, so the version moves with it: the same version string
 # must never mean two different criteria.
-JUDGE_VERSION_V4_LLM = "v4.3.0+llm"
+JUDGE_VERSION_V4_LLM = "v4.4.0+llm"
 
 
 class Signal(StrEnum):

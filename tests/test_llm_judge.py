@@ -59,6 +59,15 @@ def _verdict(flag: bool, confidence: float = 0.9, reason: str = "because") -> st
     return json.dumps({"is_actionable": flag, "confidence": confidence, "reason": reason})
 
 
+def _flat(text: str) -> str:
+    """Lower-cased with whitespace collapsed.
+
+    The prompt is hard-wrapped at ~78 columns, so a phrase can straddle a
+    newline. Assertions must not fail (or pass) because of a re-wrap.
+    """
+    return " ".join(text.lower().split())
+
+
 @pytest.fixture
 def project() -> ProjectConfig:
     """The real Einprag project config (so scores are realistic)."""
@@ -81,7 +90,8 @@ def test_criteria_are_hard_coded_in_the_prompt() -> None:
         "IT IS THE AUTHOR'S OWN DECISION",
         "Pure complaints or venting",
         "Bug reports",
-        "Academic, theoretical, conceptual",
+        "Academic, theoretical, or conceptual",
+        "pure method consultation",
         "residency, med-school, or admissions consulting",
         "If you are unsure, answer false",
         "is_actionable",
@@ -121,6 +131,60 @@ def test_prompt_implements_the_authoritative_standard() -> None:
     assert "names NO" not in SYSTEM_PROMPT
 
 
+def test_prompt_implements_the_demand_domain_rule() -> None:
+    """Criterion (1) is judged by DEMAND DOMAIN, not by an exact SKU match.
+
+    The labeler added this to `label_judgement_standard`; a prompt that still
+    required a SKU match would reproduce the v4.2.0 recall bug in a new form.
+    """
+    lowered = _flat(SYSTEM_PROMPT)
+    for phrase in (
+        "demand domain",
+        "not by sku",
+        "does not have to match the monitored product's own sku",
+        "is there any way this product could serve this person",
+    ):
+        assert phrase in lowered, phrase
+
+
+def test_prompt_implements_rules_a_b_and_c() -> None:
+    """Rules (a) free-only, (b) research stage, (c) build-vs-buy.
+
+    (c) is the buy-vs-build rule, and it is here because it is in the standard
+    — not because it was requested in a chat message. If the standard ever drops
+    it, this test is the thing that should fail first.
+    """
+    lowered = SYSTEM_PROMPT.lower()
+    # (a) explicit ask for something free -> not purchase intent
+    assert "free-only requests" in lowered
+    assert "willingness to pay" in lowered
+    # (b) research stage does not satisfy criterion (3)
+    assert "research stage" in lowered
+    assert "anyone have experiences" in lowered
+    # (c) build-vs-buy DOES satisfy criterion (2)
+    assert "build-vs-buy" in lowered
+    assert "satisfy criterion (2)" in lowered
+    assert "roll your own" in lowered
+    assert "off the shelf" in lowered
+    # (c) is explicitly distinguished from (b), or the two collide.
+    assert "this differs from rule (b)" in lowered
+    # The three rules are labelled (a)/(b)/(c) so a reader can map them back.
+    for marker in ("(a)", "(b)", "(c)"):
+        assert marker in SYSTEM_PROMPT, marker
+
+
+def test_prompt_forbids_private_exclusion_reasons() -> None:
+    """Every rejection must map to one of the three criteria.
+
+    The standard ends with: "a reason that is not in the standard is a private
+    standard and is not allowed". The prompt has to say so, otherwise the model
+    supplies its own.
+    """
+    lowered = _flat(SYSTEM_PROMPT)
+    assert "private standard" in lowered
+    assert "must map back to one of the three criteria" in lowered
+
+
 def test_prompt_matches_the_committed_standard_text() -> None:
     """Cross-check against meta.json so the two cannot drift silently."""
     meta_path = REPO_ROOT / "data" / "testset" / "einprag-2026-09-27" / "meta.json"
@@ -131,6 +195,30 @@ def test_prompt_matches_the_committed_standard_text() -> None:
     assert "category" in SYSTEM_PROMPT.lower()
     assert "seeking" in SYSTEM_PROMPT.lower()
     assert "decision" in SYSTEM_PROMPT.lower()
+
+    # Every extra rule the standard defines must be honoured by the prompt.
+    for phrase in ("demand domain", "build-vs-buy", "willingness to pay"):
+        assert phrase in standard, phrase
+        assert phrase in SYSTEM_PROMPT.lower(), phrase
+
+
+def test_demand_domain_reaches_the_model(project: ProjectConfig) -> None:
+    """The per-project demand domain is sent, so criterion (1) has something
+    to be judged against."""
+    post = _post("Which flashcard app should I use?", "quizlet is expensive")
+    base = get_judge(LAYER_RULE_V3).judge(post, project)
+    prompt = build_user_prompt(post, project, base, "a spaced-repetition app")
+
+    assert "exam prep / studying / memorization" in prompt
+    assert project.demand_domain  # configured, not silently empty
+    assert "Demand domain" in prompt
+
+
+def test_demand_domain_falls_back_to_keywords() -> None:
+    """A project predating the field still sends a usable domain."""
+    legacy = ProjectConfig(name="Legacy", keywords=["widget", "gadget"])
+    assert legacy.demand_domain == ""
+    assert legacy.domain_or_keywords() == "widget, gadget"
 
 
 def test_user_prompt_is_deterministic(project: ProjectConfig) -> None:

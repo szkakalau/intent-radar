@@ -319,11 +319,24 @@ class ProjectConfig:
     # deliberately ignores this field — enabling it would change the published
     # hit set, so it may only be switched on together with a judge version bump.
     pain_words: list[str] = field(default_factory=list)
+    # The DEMAND DOMAIN the product can serve, in the wording of
+    # `label_judgement_standard` (meta.json). Criterion (1) is judged against
+    # this, not against an exact SKU match — see judge/llm.py SYSTEM_PROMPT.
+    demand_domain: str = ""
     min_score: int | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         """Mapping view used by the verbatim v3 ``score()`` function."""
         return {"keywords": self.keywords, "competitors": self.competitors}
+
+    def domain_or_keywords(self) -> str:
+        """The demand domain, falling back to the category keywords.
+
+        The standard defines criterion (1) against a demand domain. Projects
+        added before that field existed have none, so the keywords stand in
+        rather than leaving the judge to guess.
+        """
+        return self.demand_domain or ", ".join(self.keywords)
 
 
 @dataclass
@@ -419,6 +432,7 @@ class Watchlist:
                     keywords=_require_str_list(p_raw, path_str, "keywords", allow_empty=False),
                     competitors=_require_str_list(p_raw, path_str, "competitors", allow_empty=True),
                     pain_words=_require_str_list(p_raw, path_str, "pain_words", allow_empty=True),
+                    demand_domain=_require_str(p_raw, path_str, "demand_domain"),
                     min_score=min_score,
                 )
             )

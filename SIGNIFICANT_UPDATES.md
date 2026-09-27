@@ -473,11 +473,87 @@ is what moves `1wqq5om`.
   sample flipping is a 50-point swing. The reviewer recommends **not**
   publishing a rate for it and reporting instead a **density + negative-control
   conclusion** — e.g. r/SaaS + r/microsaas + r/Entrepreneur total 107 posts
-  with 0 actionable, 1/137 = 0.7% overall, i.e. general-founder subreddits are
-  the wrong target for intent monitoring. That is both publishable and more
-  honest than an n=2 ratio. Whether to grow the sample is the team lead's call.
+  with 0 actionable, **2/137 = 1.5% overall** (corrected from an earlier
+  "1/137 = 0.7%", which read a stale labels.csv), i.e. general-founder
+  subreddits are the wrong target for intent monitoring. That is both
+  publishable and more honest than an n=2 ratio. Whether to grow the sample is
+  the team lead's call. The README now publishes exactly this — the density
+  table, and no bootstrap ratio.
 - The LLM response cache stores failures as well as successes, so a transient
   parse failure sticks until the cache is cleared.
+
+### `eval run` stopped claiming there was no human review
+
+`EvalReport.render()` hard-printed:
+
+```
+no manual review included in this run (see data/testset/<id>/labels.csv)
+→ full accuracy incl. human review is delivered in W2 (`eval score`)
+```
+
+That was true in W1. It has been false for some time — `labels.csv` is filled in
+and `eval score` exists — and **the README quoted the block verbatim**, so a
+reader following the quickstart would be told the project has no ground truth
+while the accuracy section two scrolls down is built entirely on one.
+
+`EvalReport` now carries the dataset's `LabelSet` and prints what is actually
+there:
+
+```
+reviewed hits           5/6   (1 undecided: borderline/blank)
+noise rate              80.0%
+ground truth: 183 labeled (8 actionable / 175 not) · 0 unlabeled · 28 borderline
+→ full precision / recall: `eval score --testset einprag-2026-09-27`
+```
+
+The `reviewed hits` line is the point: it states how much of the published hit
+set a human has adjudicated, and counts `borderline`/blank rows as undecided
+instead of folding them into either side. When no `labels.csv` exists the report
+says so rather than printing a 0% noise rate. Two tests pin this, including one
+asserting the old W1 wording is gone — a stale string in tool output is a bug
+even when nothing crashes, because documentation quotes it.
+
+### `v4.4.0+llm`: prompt synced from the standard, not from chat
+
+The labeler wrote the remaining rules into `label_judgement_standard`, so the
+judge prompt has been synced **from `meta.json`**, which is what the team lead
+asked for ("wait for the labeler to write it into meta.json, then sync from the
+standard — never from a chat message"). Added to `SYSTEM_PROMPT`:
+
+- **Criterion (1) is judged by DEMAND DOMAIN, not by SKU.** The named category
+  does not have to match the product's own SKU, but must fall inside the domain
+  that product can serve. The two failure modes are spelled out: (i) no category
+  named at all, (ii) a category named but outside the domain — both false.
+- **Rule (a)** an explicit ask for something FREE → no willingness to pay →
+  false, but explicitly *not* "clearly unrelated".
+- **Rule (b)** research stage ("anyone have experiences with X") → false.
+- **Rule (c)** a first-person **build-vs-buy** question DOES satisfy criterion
+  (2), with the test being whether buying is on the table as an option the author
+  is choosing between — distinguished from (b) in the prompt so the two cannot
+  collide.
+- Every rejection reason must now **map back to one of the three criteria**; the
+  standard calls anything else "a private standard", so the prompt says so.
+
+The demand domain is **per project** (ground truth is per-testset), so it is a
+new optional `demand_domain` field on `ProjectConfig` / `config/watchlist.json`,
+falling back to `keywords` for projects that predate it, and it is injected into
+the user turn. Version bumped `v4.3.0+llm` → **`v4.4.0+llm`**.
+
+**`v4.4.0+llm` is unmeasured.** Numbers were deliberately not re-run until the
+pending label batch lands; the README says so and quotes the v4.3.0 figures
+under their own version. Five new tests pin the synced wording, including one
+that cross-checks each rule against `meta.json`, so the prompt and the standard
+cannot drift apart silently again.
+
+### Staged figures in the README
+
+The README's numbers are published **staged at n=8** and flagged as pending a
+ground-truth batch, rather than left as placeholders until the batch lands. The
+old Status block advertised "precision 0%", which was a number from before
+`eval score` existed and no longer reproduced; it now states the measured
+20.0% (1/5) / 12.5% (1/8) with their 95% Wilson intervals and an explicit
+"sample size n=8, pending batch" warning. Every figure will be refreshed **in
+the same commit as the pending adjudication**.
 
 ---
 

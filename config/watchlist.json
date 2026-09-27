@@ -9,7 +9,8 @@
     "projects[].subreddits": "non-empty list[str]",
     "projects[].keywords": "non-empty list[str], 品类词",
     "projects[].competitors": "list[str], 竞品名",
-    "projects[].pain_words": "list[str], reserved / unused in rule_v3（v3 打分只用模块常量 PAIN_WORDS）"
+    "projects[].pain_words": "list[str], reserved / unused in rule_v3（v3 打分只用模块常量 PAIN_WORDS）",
+    "projects[].demand_domain": "str, 该产品的需求域（可选）。口径来自 data/testset/<id>/meta.json 的 label_judgement_standard：判据(1) 按需求域判定，不是按 SKU 精确匹配。留空则回落为 keywords。"
   },
 
   "global": {
@@ -26,6 +27,7 @@
       "site": "einprag.com",
       "subreddits": ["medicalschool", "languagelearning", "Anki", "GetStudying", "premed"],
       "keywords": ["flashcard", "flash card", "spaced repetition", "anki", "memorize", "srs"],
+      "demand_domain": "exam prep / studying / memorization. IN domain: flashcard apps, question banks, workbooks, exam-prep resources, spaced-repetition tools, language-learning apps, study-skills courses, recall-improvement courses. OUT of domain: a different algorithm, an interview tracker, career/residency consulting, and pure method consultation (asking only how long to study, with no resource request).",
       "competitors": ["ankiapp", "ankidroid", "quizlet", "brainscape"],
       "pain_words": ["storage", "slow", "expensive", "hate", "sucks", "annoying", "problem", "issue", "broken", "alternative", "instead of", "switch", "better than", "free"]
     },
@@ -35,6 +37,7 @@
       "site": "（本工具自己）",
       "subreddits": ["SaaS", "indiehackers", "startups", "Entrepreneur", "microsaas"],
       "keywords": ["reddit marketing", "reddit", "find customers", "first users", "first customers", "cold outreach", "lead gen", "lead generation", "get traction", "distribution", "get users", "no users", "marketing"],
+      "demand_domain": "finding customers / customer acquisition / lead generation / getting users. IN domain: 'find customers', 'be found by customers', 'get users', lead gen, outreach that converts, monitoring communities for buying signals, cold-start acquisition. OUT of domain: landing pages, finding TikTok creators, fundraising intros, interview/residency trackers, generic 'growth' with no ask about reaching buyers.",
       "competitors": ["gummysearch", "redreach", "octolens", "syften", "subredditsignals", "leadmore", "phantombuster"],
       "pain_words": []
     },

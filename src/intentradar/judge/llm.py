@@ -99,10 +99,18 @@ Answer is_actionable = true ONLY IF ALL THREE of these hold:
       NAMING A SPECIFIC PRODUCT IS NEVER REQUIRED — naming the category is
       sufficient. Never reject a post merely because it asks "how" or asks for
       "a way" instead of naming a tool.
-      You are NOT being asked whether the category is exactly the product the
-      monitored project sells: naming the category is enough, and adjacency in
-      the same problem space counts. Only a post that is CLEARLY UNRELATED
-      fails here.
+      CRITERION (1) IS JUDGED BY DEMAND DOMAIN, NOT BY SKU: the category named
+      does NOT have to match the monitored product's own SKU exactly, but it
+      MUST fall inside the demand domain that product can serve (given below
+      per project). "A slightly different product in the same problem space"
+      is IN; "a product for a completely different job" is OUT.
+      Criterion (1) fails in two different ways, and BOTH are false:
+        (i)  no category is named at all — the author only complains or asks
+             "what should I do?";
+        (ii) a category IS named but falls OUTSIDE the demand domain, so the
+             monitored product cannot serve this person at all.
+      The test sentence: is there ANY way this product could serve this
+      person? Yes -> criterion (1) holds; No -> it does not.
 
   (2) THE NEED IS UNMET AND THEY ARE ACTIVELY SEEKING — the current approach
       is not working and the author is looking for a solution: complaining
@@ -112,33 +120,54 @@ Answer is_actionable = true ONLY IF ALL THREE of these hold:
   (3) IT IS THE AUTHOR'S OWN DECISION — the author holds or shares the
       purchase decision.
 
-Answer is_actionable = false if ANY of the three is missing, and in
-particular for:
+Answer is_actionable = false if ANY of the three is missing. EVERY rejection
+reason must map back to one of the three criteria — a reason that is not in
+this prompt is a private standard and is not allowed. In particular:
   * Pure complaints or venting that ask for nothing — complaining alone is not
-    seeking ("this is so slow, ugh").
+    seeking ("this is so slow, ugh"). [fails (2)]
   * Watching the market, researching on behalf of someone else, hunting for
     content ideas, surveys, or research requests — the author does not hold
-    the decision.
+    the decision. [fails (3)]
   * Self-promotion of the author's own product — they are PITCHING it: sharing
     a link, advertising it, asking for users or feedback on it, or hiring for
-    it. Merely mentioning that they build something is NOT promotion.
-  * Posts where the author is offering, selling, or hiring rather than looking.
+    it. Merely mentioning that they build something is NOT promotion. [fails
+    (3)]
+  * Posts where the author is offering, selling, or hiring rather than
+    looking. [fails (2)/(3)]
   * Bug reports, error reports, crash logs, and support questions about a
-    product the author already owns and wants to keep using.
-  * Academic, theoretical, conceptual, or study-method discussion where there
-    is nothing to acquire ("how does spaced repetition work?").
+    product the author already owns and wants to keep using — they are not
+    seeking a replacement. [fails (2)]
+  * Academic, theoretical, or conceptual discussion with nothing to acquire
+    ("how does the algorithm work?"), and pure method consultation that asks
+    only HOW to do something with no resource request ("how long should I
+    study?"). [fails (1)/(2)]
   * Career, job, internship, residency, med-school, or admissions consulting
-    questions. These are extremely common in r/medicalschool: the person wants
-    advice, not a product.
-  * Meta discussion about Reddit itself.
+    questions — the person wants advice, not a product, and these are outside
+    the demand domain. [fails (1)]
+  * Meta discussion about Reddit itself. [fails (1)]
 
-Additional rules:
-  * Do NOT reject merely because the author is a founder, builder, or is doing
-    market research. The line is whether THEY hold the purchase decision:
-    asking "do you use a tool for it, or roll your own?" is their own
-    buy-vs-build decision even when they have already started building, and
-    even if the thing they might build is in the monitored category. Asking
-    others what the market wants is research.
+Additional rules, all of them part of the standard:
+  (a) FREE-ONLY REQUESTS — if the author explicitly asks for something FREE
+      (free sites, free tools, free resources) there is no current willingness
+      to pay, so this is NOT purchase intent: answer false. Do not treat it as
+      "clearly unrelated": the need may be real and in domain, only the
+      willingness to pay is missing.
+  (b) RESEARCH STAGE — asking others about their experience ("anyone have
+      experiences with X", "did it work for you?") evaluates an approach and
+      does not yet seek a solution for the asker: answer false. The test for
+      (3) is whether the author themselves is making the decision ("before we
+      go further down this road" = yes; "anyone have experiences" = no).
+  (c) BUILD-VS-BUY — a first-person build-vs-buy question ("do you use a tool
+      for it, or roll your own?", "should I build this or buy it?", "is there
+      something off the shelf?") DOES satisfy criterion (2): the author is
+      actively seeking a solution to their own unmet need, because they are
+      explicitly weighing the purchase option. The test is whether the ask
+      puts BUYING on the table as one of the options the author is choosing
+      between. This differs from rule (b): "does this approach work at all?"
+      is research, "should I buy it or build it?" is not.
+  * Do NOT reject merely because the author is a founder, builder, or has
+    already started building — see rule (c). The line is whether THEY hold
+    the purchase decision. Asking others what the market wants is research.
   * A question mark, urgency, or exclamation marks are NOT evidence of intent.
   * Asking a community for opinions is only intent if the opinion being asked
     for is "which thing should I get/use".
@@ -151,6 +180,8 @@ Reply with ONE JSON object and nothing else — no markdown, no prose:
 USER_TEMPLATE = """\
 Project being monitored: {project}
 Project description: {description}
+Demand domain this product can serve (criterion 1 is judged against THIS, not
+against an exact SKU match): {demand_domain}
 Product category keywords: {keywords}
 Known competitors: {competitors}
 
@@ -255,6 +286,7 @@ def build_user_prompt(
     return USER_TEMPLATE.format(
         project=project.name,
         description=description or project.site or "(not provided)",
+        demand_domain=project.domain_or_keywords() or "(not provided)",
         keywords=", ".join(project.keywords) or "(none)",
         competitors=", ".join(project.competitors) or "(none)",
         sub=post.sub or "(unknown)",

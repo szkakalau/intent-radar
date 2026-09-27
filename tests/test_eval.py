@@ -91,6 +91,51 @@ def test_eval_run_reports_the_four_numbers(dataset_id: str) -> None:
         assert token in rendered
 
 
+def test_eval_run_reports_real_review_coverage(dataset_id: str) -> None:
+    """`eval run` states the review it actually has, not a W1 placeholder.
+
+    The old block hard-printed "no manual review included in this run (…W2)"
+    long after labels.csv had been filled in. It is exactly the kind of stale
+    string that ends up quoted verbatim in a README, so it is pinned.
+    """
+    if not (TESTSET_DIR / dataset_id / "posts.jsonl").exists():
+        pytest.skip("frozen dataset not present")
+
+    dataset = EvalDataset.load(dataset_id, TESTSET_DIR)
+    report = EvalRunner(watchlist_path=WATCHLIST_PATH).run(dataset)
+    rendered = report.render()
+
+    assert report.label_set is not None
+    assert report.label_set.rows > 0
+    assert "no manual review included" not in rendered
+    assert "delivered in W2" not in rendered
+
+    decided = [h.post.id for h in report.hits if h.post.id in report.label_set.labels]
+    assert "reviewed hits" in rendered
+    assert f"{len(decided)}/{report.hit_count}" in rendered
+    # Undecided hits must be visible rather than silently folded into the rate.
+    undecided = report.hit_count - len(decided)
+    assert f"({undecided} undecided" in rendered
+    assert "eval score --testset einprag-2026-09-27" in rendered
+    # The ground-truth line must agree with eval score's own counts.
+    assert f"{report.label_set.positives} actionable" in rendered
+
+
+def test_eval_run_says_so_when_there_are_no_labels() -> None:
+    """With no labels.csv the report says the hit rate is un-scored, not 0% noise."""
+    if not (TESTSET_DIR / "einprag-2026-09-27" / "posts.jsonl").exists():
+        pytest.skip("frozen dataset not present")
+
+    dataset = EvalDataset.load("einprag-2026-09-27", TESTSET_DIR)
+    report = EvalRunner(watchlist_path=WATCHLIST_PATH).run(dataset)
+    report.label_set = None
+
+    rendered = report.render()
+    assert "no labels.csv" in rendered
+    assert "ground truth:" not in rendered
+    assert "reviewed hits" not in rendered
+
+
 def test_dataset_roundtrip(tmp_path: Path) -> None:
     """A dataset loaded from disk exposes its metadata and posts."""
     dataset = EvalDataset.load("einprag-2026-09-27", TESTSET_DIR)
