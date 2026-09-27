@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IntentRadar — the numbers, and how to check them</title>
+<style>
+  :root{
+    --bg:#ffffff; --panel:#f7f8fa; --line:#e4e7ec; --ink:#151a21; --muted:#5b6672;
+    --teal:#0f766e; --amber:#a16207; --grey:#64748b; --accent:#1d4ed8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px 96px}
+  header{padding:64px 0 28px;border-bottom:1px solid var(--line);margin-bottom:36px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+  .tag{font-size:18px;color:var(--muted);margin:0 0 18px;max-width:62ch}
+  .badges{display:flex;flex-wrap:wrap;gap:8px}
+  .badge{font:12px/1 var(--mono);padding:6px 10px;border:1px solid var(--line);
+    border-radius:999px;color:var(--muted);background:var(--panel)}
+  h2{font-size:21px;margin:52px 0 6px;letter-spacing:-.01em}
+  h2 .n{font:13px/1 var(--mono);color:var(--muted);display:block;margin-bottom:8px;font-weight:400}
+  p{margin:12px 0}
+  .lede{color:var(--muted);max-width:70ch}
+  .callout{border:1px solid var(--line);border-left:3px solid var(--accent);
+    background:var(--panel);padding:16px 18px;border-radius:6px;margin:20px 0}
+  .callout strong{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+  td.num,th.num{font-family:var(--mono);font-size:13px;white-space:nowrap}
+  tbody tr:hover{background:var(--panel)}
+  .ci{color:var(--muted);font-size:12px;font-family:var(--mono)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:22px 0}
+  .card{border:1px solid var(--line);border-radius:8px;padding:16px 18px;background:var(--panel)}
+  .card .big{font:600 30px/1 var(--mono);display:block;margin-bottom:6px}
+  .card.good .big{color:var(--teal)} .card.bad .big{color:var(--amber)} .card.neu .big{color:var(--grey)}
+  .card p{margin:6px 0 0;font-size:13px;color:var(--muted)}
+  .filters{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 12px}
+  button{font:13px/1 inherit;padding:8px 14px;border:1px solid var(--line);background:var(--bg);
+    border-radius:6px;cursor:pointer;color:var(--muted)}
+  button:hover{border-color:var(--muted);color:var(--ink)}
+  button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  .row{border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:10px;background:var(--bg)}
+  .row.extra{border-left:3px solid var(--amber)}
+  .row.both{border-left:3px solid var(--teal)}
+  .row .title{font-weight:600;font-size:15px;margin-bottom:6px}
+  .row .meta{font:12px/1.5 var(--mono);color:var(--muted);margin-bottom:8px;word-break:break-word}
+  .row .reason{font-size:13px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .chip{font:11px/1 var(--mono);padding:5px 8px;border-radius:4px;border:1px solid transparent}
+  .chip.actionable{color:#fff;background:var(--teal)}
+  .chip.not_actionable{color:#fff;background:var(--amber)}
+  .chip.borderline{color:#fff;background:var(--grey)}
+  .yes{color:var(--teal);font-family:var(--mono);font-size:12px;font-weight:600}
+  .no{color:var(--grey);font-family:var(--mono);font-size:12px}
+  ul{margin:12px 0;padding-left:22px} li{margin:6px 0}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;
+    overflow-x:auto;font:13px/1.7 var(--mono);color:var(--ink)}
+  code{font-family:var(--mono);font-size:13px;background:var(--panel);padding:2px 6px;border-radius:4px}
+  .warn{border-left-color:var(--amber)}
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>IntentRadar</h1>
+  <p class="tag">Finds people on Reddit who are asking for what you sell — and publishes
+  how often it is wrong, with the error bars, so you can check the arithmetic yourself.</p>
+  <div class="badges">
+    <span class="badge">MIT</span>
+    <span class="badge">348 hand-labelled posts</span>
+    <span class="badge">reproducible offline, no key</span>
+    <span class="badge">every figure carries its 95% CI</span>
+  </div>
+</header>
+
+<div class="callout">
+  <strong>This page renders frozen files, not a live model.</strong>
+  There is no API key behind it and no network call. Every number below comes from
+  recordings committed to the repository, and the command that regenerates it is at the
+  bottom of this page. If you run that command and get a different number, this page is wrong —
+  not your machine.
+</div>
+
+<h2><span class="n">01 — the funnel</span>Two stages, so only the cheap one has to be greedy</h2>
+<p class="lede">A regex net that is deliberately over-inclusive and costs nothing, then a
+model that reads the survivors against a written three-criteria standard. The net is allowed
+to be sloppy; the gate is not.</p>
+
+<table>
+  <thead><tr>
+    <th>Stage</th><th class="num">Candidates</th><th class="num">Precision</th><th class="num">Recall</th>
+  </tr></thead>
+  <tbody>
+    <tr><td><code>rule_v4</code> — the wide net <em>(offline, model-independent)</em></td>
+        <td class="num">42</td>
+        <td class="num">26.3% (10/38)<div class="ci">95% CI [15%, 42%]</div></td>
+        <td class="num">100.0% (10/10)<div class="ci">95% CI [72%, 100%]</div></td></tr>
+    <tr><td>…then the <strong>DeepSeek</strong> gate</td>
+        <td class="num">11</td>
+        <td class="num">100.0% (9/9)<div class="ci">95% CI [70%, 100%]</div></td>
+        <td class="num">90.0% (9/10)<div class="ci">95% CI [60%, 98%]</div></td></tr>
+    <tr><td>…then the <strong>Nemotron</strong> gate</td>
+        <td class="num">19</td>
+        <td class="num">62.5% (10/16)<div class="ci">95% CI [39%, 82%]</div></td>
+        <td class="num">100.0% (10/10)<div class="ci">95% CI [72%, 100%]</div></td></tr>
+  </tbody>
+</table>
+
+<h2><span class="n">02 — the part we did not expect</span>The second model is a strict superset, not a contradiction</h2>
+<p class="lede">We ran the same frozen 42 candidates through both models, same prompt, same
+code path. Nemotron accepted <strong>every post DeepSeek accepted</strong>, and 8 more.
+<strong>Nothing was reversed.</strong> So this is not two models disagreeing about which
+posts are actionable — it is one model reaching further.</p>
+
+<div class="cards">
+  <div class="card good"><span class="big">1</span>
+    <p>of the 8 extra is <code>1woxhua</code> — the one real buyer the stricter model missed.
+    That single post is the <em>entire</em> reason recall goes 90% → 100%.</p></div>
+  <div class="card bad"><span class="big">6</span>
+    <p>are labelled <code>not_actionable</code> — confirmed false positives. They are the
+    <em>entire</em> reason precision goes 100% → 62.5%.</p></div>
+  <div class="card neu"><span class="big">1</span>
+    <p>is <code>borderline</code>: a human could not rule it either way, so it is excluded
+    from every ratio rather than counted as a miss.</p></div>
+</div>
+
+<div class="callout warn">
+  <strong>We are not going to publish only the flattering row.</strong> The model this
+  competition asks us to use is the <em>worse</em> one on precision, and it sits directly
+  beneath the number that looks good. Which you would prefer is not a model question — it is
+  whether a wasted reply or a missed customer costs you more.
+</div>
+
+<h2><span class="n">03 — all 42 judgements</span>Read them yourself</h2>
+<p class="lede">Every candidate the net caught, what each model decided, and what the human
+labeller wrote. Nothing is hidden behind a score.</p>
+
+<div class="filters">
+  <button data-f="all" class="on">All 42</button>
+  <button data-f="extra">The 8 they differ on</button>
+  <button data-f="fp">The 6 confirmed false positives</button>
+  <button data-f="both">The 11 both accepted</button>
+</div>
+<div id="list"></div>
+
+<h2><span class="n">04 — the fine print</span>What this page does not claim</h2>
+<ul>
+  <li><strong>n = 10.</strong> There are ten real buyers in this test set. That is why every
+  figure carries a 95% interval: "100% precision" on nine posts really means
+  "somewhere between 70% and 100%".</li>
+  <li><strong>One product, five subreddits.</strong> 211 posts about exam preparation and
+  memorisation, judged from the point of view of one flashcard tool. Nothing here generalises
+  on its own.</li>
+  <li><strong>The second test set publishes density, not a rate.</strong> It has 2 positives,
+  so a rate there moves 50 points per relabelled row. It also turned out to be drawn from
+  founder communities — people building these tools, not buying them.</li>
+  <li><strong>Nemotron did not run on Nebius.</strong> It was served by OpenRouter, whose
+  gateway reports <code>provider: "Nvidia"</code>. Account creation on Nebius is unavailable
+  to us in this region. A judge checking "runs on Nebius Token Factory" should count this
+  submission as <strong>not meeting</strong> that clause.</li>
+  <li><strong>9 of the 91 judgements returned HTTP 503 on the first attempt</strong> ("upstream
+  temporarily overloaded") and were retried. Both recordings now hold every verdict with
+  zero unresolved — but the first pass was not clean.</li>
+  <li><strong>One accounting gap we cannot explain.</strong> The Nemotron endpoint reports
+  ~2,086 prompt tokens per judgement; DeepSeek reports ~406 for the same prompt. We are
+  publishing both rather than quoting the cheaper one.</li>
+</ul>
+
+<h2><span class="n">05 — check it</span>Two commands, no key, no network</h2>
+<pre>git clone https://github.com/szkakalau/intent-radar
+cd intent-radar
+uv sync --extra dev
+
+# the offline reproduction — no API key, no endpoint, no network
+uv run intentradar eval score --testset einprag-2026-09-27 \
+      --layers rule_v4,rule_v4+llm --min-score 3 \
+      --replay data/replay/einprag-2026-09-27/rule_v4_llm
+
+# the same thing with the NVIDIA model
+uv run intentradar eval score --testset einprag-2026-09-27 \
+      --layers rule_v4,rule_v4+llm --min-score 3 \
+      --replay data/replay/nemotron-openrouter-2026-09-27/rule_v4_llm</pre>
+
+<p>A replay never fills a gap from anywhere. Change the prompt or the judge version and it
+<em>fails</em>, naming what changed, rather than quietly answering a different question.</p>
+
+<footer>
+  <p>IntentRadar · MIT licence ·
+  <a href="https://github.com/szkakalau/intent-radar">github.com/szkakalau/intent-radar</a></p>
+  <p>Test set <code>einprag-2026-09-27</code> · labels sha256 <code>2009ef74b2d1</code> ·
+  211 rows, 184 labelled (10 actionable / 174 not), 27 borderline.</p>
+</footer>
+
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const list = document.getElementById('list');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function chip(h){
+  const cls = h === 'actionable' ? 'actionable' : (h === 'not_actionable' ? 'not_actionable' : 'borderline');
+  return `<span class="chip ${cls}">human: ${esc(h)}</span>`;
+}
+function verdict(b){ return b ? '<span class="yes">accepted ✓</span>' : '<span class="no">rejected</span>'; }
+
+function render(f){
+  const rows = DATA.rows.filter(r =>
+    f === 'all'  ? true :
+    f === 'extra' ? r.cls === 'extra' :
+    f === 'fp'    ? (r.cls === 'extra' && r.human === 'not_actionable') :
+                    r.cls === 'both');
+  list.innerHTML = rows.map(r => `
+    <div class="row ${r.cls}">
+      <div class="title">${esc(r.title)}</div>
+      <div class="meta">r/${esc(r.sub)} · <a href="https://reddit.com/comments/${esc(r.id)}">${esc(r.id)}</a></div>
+      <div class="chips">
+        ${chip(r.human)}
+        <span class="chip" style="border-color:var(--line);color:var(--muted)">DeepSeek: ${r.ds?'yes':'no'}</span>
+        <span class="chip" style="border-color:var(--line);color:var(--muted)">Nemotron: ${r.nm?'yes':'no'}</span>
+      </div>
+      ${r.cls === 'extra' && r.human_note ? `<div class="reason"><strong>Why a human ruled this way:</strong> ${esc(r.human_note)}</div>` : ''}
+      ${r.cls === 'extra' && r.nm_reason ? `<div class="reason"><strong>Nemotron's reason for accepting it:</strong> ${esc(r.nm_reason)}</div>` : ''}
+    </div>`).join('')
+    || '<p class="lede">Nothing matches that filter.</p>';
+}
+
+document.querySelectorAll('.filters button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.filters button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    render(b.dataset.f);
+  };
+});
+render('all');
+</script>
+</body>
+</html>

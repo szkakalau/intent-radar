@@ -1,0 +1,19 @@
+{
+  "testset_id": "einprag-2026-09-27",
+  "layer": "rule_v3+llm",
+  "judge_version": "v3.1.0+llm",
+  "model": "nvidia/nemotron-3-super-120b-a12b:free",
+  "endpoint": "https://openrouter.ai/api/v1",
+  "recorded_at": "2026-09-27T09:54:46Z",
+  "calls": 14,
+  "note": "recorded by `eval score --record` on einprag-2026-09-27; replay with `eval score --replay` reproduces this table exactly",
+  "fields": [
+    "post_id",
+    "judge_version",
+    "model",
+    "endpoint",
+    "recorded_at",
+    "prompt_sha256",
+    "response"
+  ]
+}

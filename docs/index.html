@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IntentRadar — the numbers, and how to check them</title>
+<style>
+  :root{
+    --bg:#ffffff; --panel:#f7f8fa; --line:#e4e7ec; --ink:#151a21; --muted:#5b6672;
+    --teal:#0f766e; --amber:#a16207; --grey:#64748b; --accent:#1d4ed8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px 96px}
+  header{padding:64px 0 28px;border-bottom:1px solid var(--line);margin-bottom:36px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+  .tag{font-size:18px;color:var(--muted);margin:0 0 18px;max-width:62ch}
+  .badges{display:flex;flex-wrap:wrap;gap:8px}
+  .badge{font:12px/1 var(--mono);padding:6px 10px;border:1px solid var(--line);
+    border-radius:999px;color:var(--muted);background:var(--panel)}
+  h2{font-size:21px;margin:52px 0 6px;letter-spacing:-.01em}
+  h2 .n{font:13px/1 var(--mono);color:var(--muted);display:block;margin-bottom:8px;font-weight:400}
+  p{margin:12px 0}
+  .lede{color:var(--muted);max-width:70ch}
+  .callout{border:1px solid var(--line);border-left:3px solid var(--accent);
+    background:var(--panel);padding:16px 18px;border-radius:6px;margin:20px 0}
+  .callout strong{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+  td.num,th.num{font-family:var(--mono);font-size:13px;white-space:nowrap}
+  tbody tr:hover{background:var(--panel)}
+  .ci{color:var(--muted);font-size:12px;font-family:var(--mono)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:22px 0}
+  .card{border:1px solid var(--line);border-radius:8px;padding:16px 18px;background:var(--panel)}
+  .card .big{font:600 30px/1 var(--mono);display:block;margin-bottom:6px}
+  .card.good .big{color:var(--teal)} .card.bad .big{color:var(--amber)} .card.neu .big{color:var(--grey)}
+  .card p{margin:6px 0 0;font-size:13px;color:var(--muted)}
+  .filters{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 12px}
+  button{font:13px/1 inherit;padding:8px 14px;border:1px solid var(--line);background:var(--bg);
+    border-radius:6px;cursor:pointer;color:var(--muted)}
+  button:hover{border-color:var(--muted);color:var(--ink)}
+  button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  .row{border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:10px;background:var(--bg)}
+  .row.extra{border-left:3px solid var(--amber)}
+  .row.both{border-left:3px solid var(--teal)}
+  .row .title{font-weight:600;font-size:15px;margin-bottom:6px}
+  .row .meta{font:12px/1.5 var(--mono);color:var(--muted);margin-bottom:8px;word-break:break-word}
+  .row .reason{font-size:13px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .chip{font:11px/1 var(--mono);padding:5px 8px;border-radius:4px;border:1px solid transparent}
+  .chip.actionable{color:#fff;background:var(--teal)}
+  .chip.not_actionable{color:#fff;background:var(--amber)}
+  .chip.borderline{color:#fff;background:var(--grey)}
+  .yes{color:var(--teal);font-family:var(--mono);font-size:12px;font-weight:600}
+  .no{color:var(--grey);font-family:var(--mono);font-size:12px}
+  ul{margin:12px 0;padding-left:22px} li{margin:6px 0}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;
+    overflow-x:auto;font:13px/1.7 var(--mono);color:var(--ink)}
+  code{font-family:var(--mono);font-size:13px;background:var(--panel);padding:2px 6px;border-radius:4px}
+  .warn{border-left-color:var(--amber)}
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>IntentRadar</h1>
+  <p class="tag">Finds people on Reddit who are asking for what you sell — and publishes
+  how often it is wrong, with the error bars, so you can check the arithmetic yourself.</p>
+  <div class="badges">
+    <span class="badge">MIT</span>
+    <span class="badge">348 hand-labelled posts</span>
+    <span class="badge">reproducible offline, no key</span>
+    <span class="badge">every figure carries its 95% CI</span>
+  </div>
+</header>
+
+<div class="callout">
+  <strong>This page renders frozen files, not a live model.</strong>
+  There is no API key behind it and no network call. Every number below comes from
+  recordings committed to the repository, and the command that regenerates it is at the
+  bottom of this page. If you run that command and get a different number, this page is wrong —
+  not your machine.
+</div>
+
+<h2><span class="n">01 — the funnel</span>Two stages, so only the cheap one has to be greedy</h2>
+<p class="lede">A regex net that is deliberately over-inclusive and costs nothing, then a
+model that reads the survivors against a written three-criteria standard. The net is allowed
+to be sloppy; the gate is not.</p>
+
+<table>
+  <thead><tr>
+    <th>Stage</th><th class="num">Candidates</th><th class="num">Precision</th><th class="num">Recall</th>
+  </tr></thead>
+  <tbody>
+    <tr><td><code>rule_v4</code> — the wide net <em>(offline, model-independent)</em></td>
+        <td class="num">42</td>
+        <td class="num">26.3% (10/38)<div class="ci">95% CI [15%, 42%]</div></td>
+        <td class="num">100.0% (10/10)<div class="ci">95% CI [72%, 100%]</div></td></tr>
+    <tr><td>…then the <strong>DeepSeek</strong> gate</td>
+        <td class="num">11</td>
+        <td class="num">100.0% (9/9)<div class="ci">95% CI [70%, 100%]</div></td>
+        <td class="num">90.0% (9/10)<div class="ci">95% CI [60%, 98%]</div></td></tr>
+    <tr><td>…then the <strong>Nemotron</strong> gate</td>
+        <td class="num">19</td>
+        <td class="num">62.5% (10/16)<div class="ci">95% CI [39%, 82%]</div></td>
+        <td class="num">100.0% (10/10)<div class="ci">95% CI [72%, 100%]</div></td></tr>
+  </tbody>
+</table>
+
+<h2><span class="n">02 — the part we did not expect</span>The second model is a strict superset, not a contradiction</h2>
+<p class="lede">We ran the same frozen 42 candidates through both models, same prompt, same
+code path. Nemotron accepted <strong>every post DeepSeek accepted</strong>, and 8 more.
+<strong>Nothing was reversed.</strong> So this is not two models disagreeing about which
+posts are actionable — it is one model reaching further.</p>
+
+<div class="cards">
+  <div class="card good"><span class="big">1</span>
+    <p>of the 8 extra is <code>1woxhua</code> — the one real buyer the stricter model missed.
+    That single post is the <em>entire</em> reason recall goes 90% → 100%.</p></div>
+  <div class="card bad"><span class="big">6</span>
+    <p>are labelled <code>not_actionable</code> — confirmed false positives. They are the
+    <em>entire</em> reason precision goes 100% → 62.5%.</p></div>
+  <div class="card neu"><span class="big">1</span>
+    <p>is <code>borderline</code>: a human could not rule it either way, so it is excluded
+    from every ratio rather than counted as a miss.</p></div>
+</div>
+
+<div class="callout warn">
+  <strong>We are not going to publish only the flattering row.</strong> The model this
+  competition asks us to use is the <em>worse</em> one on precision, and it sits directly
+  beneath the number that looks good. Which you would prefer is not a model question — it is
+  whether a wasted reply or a missed customer costs you more.
+</div>
+
+<h2><span class="n">03 — all 42 judgements</span>Read them yourself</h2>
+<p class="lede">Every candidate the net caught, what each model decided, and what the human
+labeller wrote. Nothing is hidden behind a score.</p>
+
+<div class="filters">
+  <button data-f="all" class="on">All 42</button>
+  <button data-f="extra">The 8 they differ on</button>
+  <button data-f="fp">The 6 confirmed false positives</button>
+  <button data-f="both">The 11 both accepted</button>
+</div>
+<div id="list"></div>
+
+<h2><span class="n">04 — the fine print</span>What this page does not claim</h2>
+<ul>
+  <li><strong>n = 10.</strong> There are ten real buyers in this test set. That is why every
+  figure carries a 95% interval: "100% precision" on nine posts really means
+  "somewhere between 70% and 100%".</li>
+  <li><strong>One product, five subreddits.</strong> 211 posts about exam preparation and
+  memorisation, judged from the point of view of one flashcard tool. Nothing here generalises
+  on its own.</li>
+  <li><strong>The second test set publishes density, not a rate.</strong> It has 2 positives,
+  so a rate there moves 50 points per relabelled row. It also turned out to be drawn from
+  founder communities — people building these tools, not buying them.</li>
+  <li><strong>Nemotron did not run on Nebius.</strong> It was served by OpenRouter, whose
+  gateway reports <code>provider: "Nvidia"</code>. Account creation on Nebius is unavailable
+  to us in this region. A judge checking "runs on Nebius Token Factory" should count this
+  submission as <strong>not meeting</strong> that clause.</li>
+  <li><strong>9 of the 91 judgements returned HTTP 503 on the first attempt</strong> ("upstream
+  temporarily overloaded") and were retried. Both recordings now hold every verdict with
+  zero unresolved — but the first pass was not clean.</li>
+  <li><strong>One accounting gap we cannot explain.</strong> The Nemotron endpoint reports
+  ~2,086 prompt tokens per judgement; DeepSeek reports ~406 for the same prompt. We are
+  publishing both rather than quoting the cheaper one.</li>
+</ul>
+
+<h2><span class="n">05 — check it</span>Two commands, no key, no network</h2>
+<pre>git clone https://github.com/szkakalau/intent-radar
+cd intent-radar
+uv sync --extra dev
+
+# the offline reproduction — no API key, no endpoint, no network
+uv run intentradar eval score --testset einprag-2026-09-27 \
+      --layers rule_v4,rule_v4+llm --min-score 3 \
+      --replay data/replay/einprag-2026-09-27/rule_v4_llm
+
+# the same thing with the NVIDIA model
+uv run intentradar eval score --testset einprag-2026-09-27 \
+      --layers rule_v4,rule_v4+llm --min-score 3 \
+      --replay data/replay/nemotron-openrouter-2026-09-27/rule_v4_llm</pre>
+
+<p>A replay never fills a gap from anywhere. Change the prompt or the judge version and it
+<em>fails</em>, naming what changed, rather than quietly answering a different question.</p>
+
+<footer>
+  <p>IntentRadar · MIT licence ·
+  <a href="https://github.com/szkakalau/intent-radar">github.com/szkakalau/intent-radar</a></p>
+  <p>Test set <code>einprag-2026-09-27</code> · labels sha256 <code>2009ef74b2d1</code> ·
+  211 rows, 184 labelled (10 actionable / 174 not), 27 borderline.</p>
+</footer>
+
+</div>
+
+<script>
+const DATA = {"rows": [{"id": "1wodq5k", "sub": "languagelearning", "title": "How do you review your grammar? And how often?", "human": "actionable", "human_note": "Asks which apps and resources others use for grammar review and how often; explicit resource/tool-selection request in the review category.", "ds": true, "nm": true, "nm_conf": 0.9, "nm_reason": "\"What apps/resources are you using?\" shows the author is actively seeking a review tool/app for their own grammar study.", "cls": "both"}, {"id": "1wonath", "sub": "languagelearning", "title": "Why do I know words I don't remember learning? How do I achieve this for other languages I'm learning?", "human": "not_actionable", "human_note": "Curiosity about incidental vocabulary acquisition; no product need.", "ds": false, "nm": true, "nm_conf": 0.85, "nm_reason": "\"How do I achieve this with other languages I'm trying to learn though?\" shows the author is actively seeking a method/solution for language learning.", "cls": "extra"}, {"id": "1work9g", "sub": "Anki", "title": "Anki for beginners - for someone who is looking for revision tools and techniques", "human": "not_actionable", "human_note": "Self-promotion of a YouTube Anki setup tutorial; not a customer.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "Author states they are not starting any paid course, indicating no purchase intent.", "cls": "neither"}, {"id": "1wot6p9", "sub": "Anki", "title": "TTS on anki mobile?", "human": "not_actionable", "human_note": "Asks how to get better TTS voices in Anki; feature/usage question, not a purchase.", "ds": false, "nm": true, "nm_conf": 0.95, "nm_reason": "\"Idk what to put in the template for a voice that is good.\" shows the author is actively seeking a TTS voice solution for Anki mobile.", "cls": "extra"}, {"id": "1woxhua", "sub": "languagelearning", "title": "How would you approach learning a language specifically to read a particular literary work in the original language?", "human": "actionable", "human_note": "Ends by asking whether existing courses, textbooks or software build a curriculum from a specific target corpus; all three are acquirable things, so criterion (1) is met by naming the category (courses/textbooks/software), and the author is asking for their own reading project. Ruled by team-lead 20", "ds": false, "nm": true, "nm_conf": 0.9, "nm_reason": "\"How would you approach learning a language specifically to read a particular literary work in the original language?\" shows the author is actively seeking a method/solution for their own language‑learning need.", "cls": "extra"}, {"id": "1wp5ps3", "sub": "Anki", "title": "Where are the updates for Anki Mobile (iOS)", "human": "not_actionable", "human_note": "Complains that Anki Mobile iOS has not been updated; pure complaint with no request for an alternative.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "The post only complains about lack of updates and does not ask for a solution or express intent to purchase.", "cls": "neither"}, {"id": "1wp6ji1", "sub": "Anki", "title": "Flashcard decks?", "human": "actionable", "human_note": "Currently on Brainscape, says \"I might switch\" and asks \"Is Anki better or another app?; explicit switch intent in the flashcard-app category.\"", "ds": true, "nm": true, "nm_conf": 0.95, "nm_reason": "The author asks 'which app is the correct app for Anki?', showing they are actively seeking a flashcard app recommendation for their own study needs.", "cls": "both"}, {"id": "1wpa2j0", "sub": "medicalschool", "title": "Assigned Ortho Surgery LOR to IM programs even tho not applying to Surgery", "human": "not_actionable", "human_note": "ERAS letter assignment mistake; admissions logistics.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "The post only vents about a mistake and does not name any product, tool, service, or solution they are seeking.", "cls": "neither"}, {"id": "1wpeakc", "sub": "Anki", "title": "Sometimes it helps to make cards *harder* to improve retention", "human": "not_actionable", "human_note": "Long-form tip sharing about making cards harder; experience post, no intent.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "The post only shares a personal tip ('I actually found that... the trick is to add some cards that are actually harder') and does not express a need for a product or service.", "cls": "neither"}, {"id": "1wpo9qi", "sub": "medicalschool", "title": "Commited mistake to only one applied program", "human": "not_actionable", "human_note": "ERAS track-selection mistake; admissions logistics.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "Post does not name any product, tool, service, or solution; only expresses worry about an application mistake.", "cls": "neither"}, {"id": "1wpq7dd", "sub": "Anki", "title": "Is there a way edit how anki flips basic/reversed cards?", "human": "not_actionable", "human_note": "Asks how to configure note types for a CSV import; usage help.", "ds": false, "nm": true, "nm_conf": 0.9, "nm_reason": "\"How should I do this?\" shows the author is actively seeking a way to customize Anki for their study needs.", "cls": "extra"}, {"id": "1wpsql7", "sub": "languagelearning", "title": "Superfluent app?", "human": "actionable", "human_note": "Actively weighing a paid subscription to a language-learning app and asks for long-term user reviews; demonstrated willingness to pay.", "ds": true, "nm": true, "nm_conf": 0.95, "nm_reason": "\"I’m thinking about subscribing to Superfluent\" shows the author is actively seeking a language‑learning app to meet their unmet need and is weighing a purchase decision.", "cls": "both"}, {"id": "1wptavj", "sub": "GetStudying", "title": "I prefer learning using video lectures on youtube instead of reading through the material via a book, am i doing it wrong?", "human": "not_actionable", "human_note": "Learning-style discussion about video lectures versus books; no product need.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "The post only asks 'am i doing it wrong?' and does not express a need for a product, tool, or solution.", "cls": "neither"}, {"id": "1wpya51", "sub": "Anki", "title": "Sad about the mobile version.", "human": "actionable", "human_note": "Disappointed by Anki mobile versus other learning apps and says they looked for another app; explicit switch intent.", "ds": true, "nm": true, "nm_conf": 0.95, "nm_reason": "\"I'd like to know if any of you have a solution … Do you know if there's a more complete version of an application like Anki?\" shows an explicit need for a flashcard/spaced‑repetition app and active seeking of a solution.", "cls": "both"}, {"id": "1wpyq8e", "sub": "languagelearning", "title": "Choosing a teacher for a language that has more than one dialect", "human": "actionable", "human_note": "Explicitly asks for recommendations among language-learning apps (Babbel, Duolingo, Rosetta Stone); clear tool-selection intent.", "ds": true, "nm": true, "nm_conf": 0.95, "nm_reason": "\"Any recommendation for one of the language learning applications such as Babbel, Duolingo, Rosetta Stone?\" shows they are seeking a language‑learning app, which is within the exam‑prep/studying/memorization demand domain.", "cls": "both"}, {"id": "1wq0vqc", "sub": "medicalschool", "title": "HELP! ERAS Help Program No Longer Offered", "human": "not_actionable", "human_note": "ERAS program withdrew a position; admissions logistics.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "The post asks 'what should I do?' about a residency program cancellation and does not mention any need for exam prep, studying, or memorization tools.", "cls": "neither"}, {"id": "1wq1xms", "sub": "GetStudying", "title": "Can someone recommend study skills classes? I'm learning for the first time.", "human": "actionable", "human_note": "Names 'study skills classes', a purchasable service, inside the exam-prep/study/memorization demand domain, and the author intends to take one themselves: all three criteria met. A course is not the product's own SKU, but criterion (1) is judged by demand domain, not SKU. Ruled by team-lead 2026-09-", "ds": true, "nm": true, "nm_conf": 0.95, "nm_reason": "\"Can someone recommend study skills classes?\" shows an explicit need for a study-skills course, active seeking, and the author's own decision.", "cls": "both"}, {"id": "1wq2e13", "sub": "premed", "title": "Advice on applying (ADHD)", "human": "not_actionable", "human_note": "ADHD and application-path advice; unrelated.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "\"I was hoping someone would be able to provide some helpful advice/encouragement.\" shows only advice-seeking, not a product need.", "cls": "neither"}, {"id": "1wq3jy6", "sub": "premed", "title": "Is my weird app going to scare off MD adcoms?", "human": "not_actionable", "human_note": "Application review request; unrelated.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "Post asks \"how are my MD prospects\" and seeks advice on admissions, not any exam‑prep tool or service.", "cls": "neither"}, {"id": "1wq43g3", "sub": "medicalschool", "title": "How to study for Boards", "human": "actionable", "human_note": "Explicitly asks for resource suggestions and a study timeline for COMLEX/Step 1; matches a study/flashcard product category.", "ds": true, "nm": true, "nm_conf": 0.95, "nm_reason": "\"If anyone has suggestions on resources to use or anything to help\" shows an explicit request for exam‑prep resources, an unmet need, and the author's own decision.", "cls": "both"}, {"id": "1wq57od", "sub": "premed", "title": "microbio questions", "human": "actionable", "human_note": "Asks which workbooks to use for MCAT/DAT-style microbiology questions; explicit study-resource selection request.", "ds": true, "nm": true, "nm_conf": 0.95, "nm_reason": "The author asks 'if anyone knows any workbooks I can use to study these type of problems?', showing an unmet need for workbooks (exam‑prep resource) and seeking them for themselves.", "cls": "both"}, {"id": "1wq5fv9", "sub": "premed", "title": "I’m 25 in nursing school right now, been on the fence about med school. What would you do in my situation?", "human": "not_actionable", "human_note": "Nursing versus medical school career decision; unrelated.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "\"What would you do in my situation?\" shows the user is seeking career advice, not a study tool or resource.", "cls": "neither"}, {"id": "1wq5s03", "sub": "languagelearning", "title": "Paranoia about speaking because of tones (Mandarin)", "human": "not_actionable", "human_note": "Anxiety about speaking Mandarin tones; discusses practicing with an app but asks for reassurance, not a product.", "ds": false, "nm": true, "nm_conf": 0.9, "nm_reason": "\"Is there a low-stakes way to practice speaking outside of an app?\" shows the author is actively seeking a solution for their speaking practice need.", "cls": "extra"}, {"id": "1wq6vlw", "sub": "languagelearning", "title": "Has anyone gotten the Critical Languages Scholarship? If so, what was it like?", "human": "not_actionable", "human_note": "Scholarship application question; unrelated.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "Post asks about scholarship experience, not seeking any product or solution.", "cls": "neither"}, {"id": "1wq8eay", "sub": "languagelearning", "title": "how do you deal with gendered nouns", "human": "borderline", "human_note": "Struggles to memorize noun genders and cannot finish flashcards; memory-specific unmet need, but asks peers for tips rather than a product.", "ds": true, "nm": true, "nm_conf": 0.8, "nm_reason": "The author asks 'what do i do?' showing they are actively seeking a solution for memorizing gendered nouns.", "cls": "both"}, {"id": "1wq8u54", "sub": "Anki", "title": "Is FSRS actually optimal for language learning?", "human": "not_actionable", "human_note": "Technical discussion on whether FSRS is optimal for language learning; academic, no purchase intent.", "ds": false, "nm": true, "nm_conf": 0.95, "nm_reason": "\"is there an alternative algorithm to optimize my repetitions for some sort of 'fluency' metric?\" shows the author is actively seeking a solution for their own unmet need.", "cls": "extra"}, {"id": "1wq9mku", "sub": "premed", "title": "Only Clinical Volunteer Hours", "human": "not_actionable", "human_note": "Clinical hours sufficiency question; unrelated.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "Asks whether volunteer experience is sufficient, not seeking any exam-prep product", "cls": "neither"}, {"id": "1wq9ypa", "sub": "Anki", "title": "Best Italian Anki Card Deck", "human": "actionable", "human_note": "Cannot find a good Italian 1000-word deck and asks for one; explicit unmet flashcard-resource request in our exact category.", "ds": true, "nm": true, "nm_conf": 0.95, "nm_reason": "\"I want to learn like the most common 1000 words in italian, but i cannot find a good deck. Does anyone have a good deck?\" shows an explicit need for an Italian Anki deck, an unmet need they are actively seeking, and the decision is theirs.", "cls": "both"}, {"id": "1wqa0tf", "sub": "premed", "title": "Cannot find a gap year job for the life of me--Advice?", "human": "not_actionable", "human_note": "Job-search advice for a gap year; unrelated.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "post asks for job-search advice ('What do yall think? Stick out the job search...'), not a study or memorization tool", "cls": "neither"}, {"id": "1wqa1sa", "sub": "GetStudying", "title": "I have my University exams in 5 days", "human": "not_actionable", "human_note": "Exam panic about doomscrolling and stress; asks for help managing stress, not a study or memory solution.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "The post asks only for advice on how to manage stress (\"I need advice on how to save me from myself and manage the stress\") with no resource request, failing criterion (1) and (2).", "cls": "neither"}, {"id": "1wqajm9", "sub": "premed", "title": "stats for Dalhousie", "human": "not_actionable", "human_note": "Admissions chances question; unrelated.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "Asks for suggestions/tips about med school admission, not a product or service in the exam prep domain.", "cls": "neither"}, {"id": "1wqarkj", "sub": "premed", "title": "Anyone with low working memory? (Plus advice on how to self-study)", "human": "borderline", "human_note": "Low working memory makes multipart pathways impossible to retain and asks for tips plus free intro-bio sites; memory-specific pain and a resource request, but not for a tool.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "The author explicitly asks for 'good free sites' indicating a free-only request, which shows no willingness to pay.", "cls": "neither"}, {"id": "1wqb4v8", "sub": "medicalschool", "title": "ERAS application mistake", "human": "not_actionable", "human_note": "ERAS submission-mistake panic; admissions logistics.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "Post only seeks reassurance ('Please tell me someone out there is as dumb as me. Am I cooked?'), not a product or solution.", "cls": "neither"}, {"id": "1wqiqz0", "sub": "premed", "title": "are there DO schools that are better than MD schools", "human": "not_actionable", "human_note": "Asks for reliable premed information websites; admissions info, not a study tool.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "Asks for premed advice websites, not exam prep/study tools", "cls": "neither"}, {"id": "1wqjy9p", "sub": "medicalschool", "title": "GUYS I AM FORGETTING THE ANATOMY I STUDIED A FEW DAYS AGO", "human": "not_actionable", "human_note": "Venting about forgetting anatomy with no request for a tool, resource or alternative.", "ds": false, "nm": true, "nm_conf": 0.9, "nm_reason": "\"HOW AM I SUPPOSED TO MEMORIZE ALL OF THIS\" shows the author is actively seeking a memorization method for themselves.", "cls": "extra"}, {"id": "1wqn738", "sub": "medicalschool", "title": "5 years into medical school and I still feel like an outsider . what should I do?", "human": "not_actionable", "human_note": "Personal/mental-health post about belonging in medical school; no product need.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "Post seeks advice on social integration ('I want advice on how to get involved with them'), not a study or memorization tool.", "cls": "neither"}, {"id": "1wqq5om", "sub": "GetStudying", "title": "Apps or tools for more productive studying", "human": "borderline", "human_note": "Names apps/tools (criterion 1 satisfied), but the author already built their own distraction-blocking browser that worked surprisingly well and is surveying others: the need is already met, so criterion (2) fails. Not 'maker, not a customer' - that reason is not one of the three criteria, and criter", "ds": false, "nm": true, "nm_conf": 0.9, "nm_reason": "\"Now im wondering if there's any apps or tools that people use to remove distractions and make you more productive?\" shows an active search for a solution.", "cls": "extra"}, {"id": "1wqsrup", "sub": "GetStudying", "title": "5-9LPA Job by December", "human": "not_actionable", "human_note": "Looking for job-prep study partners; no product need.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "\"It would be nice to have someone to study with, share progress, set goals, and keep each other accountable.\" – seeking a study partner, not a product or service.", "cls": "neither"}, {"id": "1wqsyxy", "sub": "GetStudying", "title": "How did you learn to actually study for A&P?", "human": "borderline", "human_note": "Failed A&P exams and never learned how to study; asks for a workable approach, a retention need without naming a product.", "ds": true, "nm": true, "nm_conf": 0.9, "nm_reason": "\"what actually worked for you? What did your study routine look like?\" shows the author is actively seeking a solution for their own study needs.", "cls": "both"}, {"id": "1wqvlbx", "sub": "premed", "title": "Pre MD vs DO; need advice", "human": "not_actionable", "human_note": "MD versus DO decision advice; unrelated.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "Post seeks advice on MD vs DO, not a study tool or resource", "cls": "neither"}, {"id": "1wqwkgi", "sub": "Anki", "title": "How do I remediate my tagging problem?", "human": "not_actionable", "human_note": "Asks how to retroactively tag 10k existing Anki cards; usage/organization help, not a purchase.", "ds": false, "nm": false, "nm_conf": 0.95, "nm_reason": "Asks only for advice on organizing tags, no product or solution requested", "cls": "neither"}, {"id": "1wqxgd7", "sub": "premed", "title": "Am I in a good position for the next cycle application-wise?", "human": "not_actionable", "human_note": "WAMC premed application review; unrelated.", "ds": false, "nm": false, "nm_conf": 0.9, "nm_reason": "Post seeks an honest assessment of application chances, not a flashcard app, study tool, or any exam‑prep resource.", "cls": "neither"}], "counts": {"candidates": 42, "both_yes": 11, "extra": 8, "reversed": 0, "extra_tp": 1, "extra_fp": 6, "extra_bd": 1, "flipped": 0}};
+const list = document.getElementById('list');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function chip(h){
+  const cls = h === 'actionable' ? 'actionable' : (h === 'not_actionable' ? 'not_actionable' : 'borderline');
+  return `<span class="chip ${cls}">human: ${esc(h)}</span>`;
+}
+function verdict(b){ return b ? '<span class="yes">accepted ✓</span>' : '<span class="no">rejected</span>'; }
+
+function render(f){
+  const rows = DATA.rows.filter(r =>
+    f === 'all'  ? true :
+    f === 'extra' ? r.cls === 'extra' :
+    f === 'fp'    ? (r.cls === 'extra' && r.human === 'not_actionable') :
+                    r.cls === 'both');
+  list.innerHTML = rows.map(r => `
+    <div class="row ${r.cls}">
+      <div class="title">${esc(r.title)}</div>
+      <div class="meta">r/${esc(r.sub)} · <a href="https://reddit.com/comments/${esc(r.id)}">${esc(r.id)}</a></div>
+      <div class="chips">
+        ${chip(r.human)}
+        <span class="chip" style="border-color:var(--line);color:var(--muted)">DeepSeek: ${r.ds?'yes':'no'}</span>
+        <span class="chip" style="border-color:var(--line);color:var(--muted)">Nemotron: ${r.nm?'yes':'no'}</span>
+      </div>
+      ${r.cls === 'extra' && r.human_note ? `<div class="reason"><strong>Why a human ruled this way:</strong> ${esc(r.human_note)}</div>` : ''}
+      ${r.cls === 'extra' && r.nm_reason ? `<div class="reason"><strong>Nemotron's reason for accepting it:</strong> ${esc(r.nm_reason)}</div>` : ''}
+    </div>`).join('')
+    || '<p class="lede">Nothing matches that filter.</p>';
+}
+
+document.querySelectorAll('.filters button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.filters button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    render(b.dataset.f);
+  };
+});
+render('all');
+</script>
+</body>
+</html>
