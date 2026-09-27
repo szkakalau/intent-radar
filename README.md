@@ -31,9 +31,11 @@ our number on their own machine with one command.
 > [Which model](#which-model-produced-the-stage-2-numbers)). Re-measuring on
 > Nebius/Nemotron is pending; nothing here may be quoted as a Nemotron result.
 >
-> ⚠️ **einprag only.** The einprag denominator is fully reverse-audited; the
-> bootstrap one is not yet (57 rows owing). Every rate on this page is an
-> einprag measurement.
+> ⚠️ **einprag only.** Both denominators are now fully reverse-audited (0 of 104
+> candidates changed label), but bootstrap turned out to be a supply-side corpus:
+> everyone in it who discusses intent monitoring is building or selling such a
+> tool, not buying one. Every rate on this page is therefore an einprag
+> measurement, and bootstrap contributes a density table rather than a rate.
 
 ---
 
@@ -486,12 +488,24 @@ standard cites as settled precedents still carry those labels in `labels.csv`.
 A precedent that contradicts its own ground truth is worse than no precedent,
 because the prompt is synced from that text.
 
-**Audit coverage, stated plainly.** The einprag denominator (211 rows) has been
-through a full reverse audit. The **bootstrap denominator has not** — a
-57-row reverse audit there is still owing, blocked on reviewer quota. So every
-precision/recall figure on this page is an **einprag-only** measurement, and
-bootstrap contributes a density table rather than a rate. "We audited one side"
-is worth more than "we audited everything", and the second is not true yet.
+**Audit coverage, stated plainly.** Both denominators have now been through a
+full reverse audit. Einprag (47 candidates) and bootstrap (57 candidates) were
+each drawn from an independent keyword net — one that shares nothing with the
+rule layer's regexes — and re-read against the written standard, quote by quote.
+**Neither produced an upgrade: 0 of 104 candidates changed label.** That is a
+negative result, and we publish it as one rather than as silence.
+
+The bootstrap pass produced a finding worth more than the audit itself. That
+corpus comes from `r/SaaS`, `r/startups`, `r/indiehackers`, `r/microsaas` and
+`r/Entrepreneur` — **all supply-side communities**. Everyone in it who talks
+about intent monitoring is *building or selling* such a tool, not buying one:
+`1wpekz1` wrote their own Reddit scraper, `1wqtmiw` is building brand-signal
+outreach, `1wqwri0` built a personal subreddit-picker, `1wqwgfb` is promoting
+their own lead service. **Bootstrap's 2 positives are a sampling statement, not
+a model statement** — we sampled where the builders are, then counted how many
+buyers were there. Precision and recall on this page therefore remain an
+**einprag-only** measurement, and bootstrap contributes a density table rather
+than a rate.
 
 ### Failure cases are published
 
