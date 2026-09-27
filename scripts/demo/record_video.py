@@ -20,7 +20,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "docs" / "video.html"
-OUT_MP4 = REPO / "docs" / "intentradar-demo.mp4"
+
+# Silent picture only. The shipped file at docs/intentradar-demo.mp4 is this
+# plus narration and burned-in captions, assembled by scripts/demo/assemble.py;
+# writing the picture there directly would overwrite the finished video with a
+# mute one the next time somebody re-records.
+OUT_MP4 = REPO / "build" / "silent.mp4"
 WIDTH, HEIGHT = 1280, 720
 
 # Sum of the per-scene durations in docs/video.html, plus a tail so the last

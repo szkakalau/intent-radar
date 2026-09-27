@@ -93,6 +93,34 @@ by `tests/test_video_figures.py`: the test renders the committed replays and
 requires every printed figure to appear verbatim in the rendered output. A
 hand-typed number that drifts from the reproducible one turns the suite red.
 
+### W1 follow-up, part 3 — narration and captions
+
+A submission video is mostly watched muted. The video had neither a voice nor
+captions, so its content did not exist for anyone who did not unmute it.
+
+| What | How |
+|---|---|
+| Voiceover | `scripts/demo/narrate.py` speaks one hand-written script per scene with `edge-tts` (`en-US-AndrewNeural`), and measures each clip. |
+| Captions | Cue timings come from the TTS engine's own **sentence boundaries**, not from hand-typed timestamps: cue N starts exactly when the voice starts sentence N. 23 cues. |
+| Placement | The voice is placed on the *picture's* timeline — each clip's offset is the cumulative `data-ms` read out of `docs/video.html`. `narrate.py` refuses to finish if any clip is longer than its scene, because a voice that overruns into the next slide is worse than no voice. |
+| Burned in | Captions are rendered into the picture by `scripts/demo/assemble.py`, not shipped as a soft track: a soft track is one click most viewers will not make. |
+| Reproducible | The whole recipe is three committed scripts (`narrate.py` → `record_video.py` → `assemble.py`). The ffmpeg invocation used to live in a shell history, which meant the shipped video could not be reproduced from the repo; it now lives in `assemble.py`. |
+
+Measured alignment: the caption track's silent gap falls between 11.0 s and
+11.5 s (the subtitle file says 11.412 s) and the next cue appears between
+16.8 s and 17.5 s (file says 17.050 s) — the recording start and the scene
+timeline agree to well under half a second, so nothing drifts.
+
+`edge-tts` is declared in the `dev` extra of `pyproject.toml`. It is not needed
+to run or verify the project, only to rebuild the video — but it is declared
+rather than assumed, because a script that fails on a clean checkout is a
+reproduction claim that only holds on the machine it was written on.
+
+The spoken script is guarded like the on-screen text: every percentage the
+narration says must be a percentage the committed recordings actually print
+(`tests/test_video_figures.py`), and the labelled-row counts are checked
+against `labels.csv` in all three surfaces — video, dashboard and script.
+
 ## W2 — 2026-10-04 → 2026-10-10 · Semantic layer + measured accuracy
 
 **Scope of this week:** the LLM judgment layer (`rule_v3+llm`), a configurable

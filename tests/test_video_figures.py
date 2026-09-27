@@ -31,6 +31,7 @@ place.
 
 from __future__ import annotations
 
+import ast
 import csv
 import re
 from pathlib import Path
@@ -44,6 +45,7 @@ from intentradar.replay import ReplayStore
 
 VIDEO = REPO_ROOT / "docs" / "video.html"
 TEMPLATE = REPO_ROOT / "docs" / "template.html"
+NARRATION_SRC = REPO_ROOT / "scripts" / "demo" / "narrate.py"
 WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.json"
 DATASET_ID = "einprag-2026-09-27"
 
@@ -61,7 +63,14 @@ _INTERVAL = re.compile(r"\[\d+%,\s*\d+%\]")
 
 # "348 labelled rows ... 312 of them carrying a usable verdict"
 _ROWS_TOTAL = re.compile(r"(\d+)\s+labelled rows")
-_ROWS_USABLE = re.compile(r"(\d+)\s+(?:of them carrying a usable verdict|with a verdict)")
+# Three surfaces state this count and they do not word it identically: the
+# video says "312 of them carrying a usable verdict", the dashboard badge says
+# "312 with a verdict", and the spoken script says "312 with a usable verdict".
+# Matching all three phrasings is deliberate — the alternative is one canonical
+# sentence, which would mean the guard is checking the wording, not the number.
+_ROWS_USABLE = re.compile(
+    r"(\d+)\s+(?:of them carrying a usable verdict|with a(?: usable)? verdict)"
+)
 
 
 def _rendered() -> str:
@@ -88,6 +97,20 @@ def _body(path: Path) -> str:
     """The visible text of an HTML page: markup and script stripped out."""
     text = path.read_text(encoding="utf-8")
     return re.sub(r"<style>.*?</style>|<script>.*?</script>", " ", text, flags=re.S)
+
+
+def _narration() -> str:
+    """The spoken script, read out of narrate.py's source without importing it.
+
+    ``narrate.py`` imports edge-tts, which is a dev dependency and may be
+    absent; parsing the AST instead keeps this guard runnable on a clone that
+    only installed the runtime.
+    """
+    tree = ast.parse(NARRATION_SRC.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "NARRATION":
+            return " ".join(ast.literal_eval(node.value))
+    raise AssertionError(f"NARRATION not found in {NARRATION_SRC}")
 
 
 def _labelled() -> tuple[int, int]:
@@ -137,6 +160,26 @@ def test_every_rate_in_the_video_appears_in_the_rendered_tables() -> None:
     )
 
 
+def test_the_spoken_script_states_only_figures_the_replays_print() -> None:
+    """The voiceover's numbers are guarded too, not just the on-screen ones.
+
+    A figure spoken over the picture is easier to misquote than one printed on
+    it: nobody re-reads it, and it does not appear in the README diff. It is
+    checked the same way — every percentage the narration says must be a
+    percentage the committed recordings actually render.
+    """
+    spoken = {float(m) for m in re.findall(r"(\d+(?:\.\d+)?)\s*percent", _narration())}
+    assert spoken, "the narration states no percentages — the guard has stopped guarding"
+
+    printed = {float(m) for m in re.findall(r"(\d+(?:\.\d+)?)%", _rendered())}
+    unbacked = sorted(spoken - printed)
+    assert not unbacked, (
+        "the voiceover says percentages the committed recordings do not print: "
+        f"{unbacked}. The narration in scripts/demo/narrate.py is hand-written; "
+        "re-record the video in the same commit as any change to it."
+    )
+
+
 def test_the_video_states_the_labelled_row_count_correctly() -> None:
     """348 rows / 312 with a verdict — read from labels.csv, not remembered.
 
@@ -147,7 +190,11 @@ def test_the_video_states_the_labelled_row_count_correctly() -> None:
     rows, usable = _labelled()
     assert rows and usable, "no labelled rows found — the testsets did not load"
 
-    for path, text in ((VIDEO, _body(VIDEO)), (TEMPLATE, _body(TEMPLATE))):
+    for path, text in (
+        (VIDEO, _body(VIDEO)),
+        (TEMPLATE, _body(TEMPLATE)),
+        (NARRATION_SRC, _narration()),
+    ):
         totals = {int(m) for m in _ROWS_TOTAL.findall(text)}
         usables = {int(m) for m in _ROWS_USABLE.findall(text)}
         assert totals == {rows}, (

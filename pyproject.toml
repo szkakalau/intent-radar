@@ -32,6 +32,12 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
+    # scripts/demo/narrate.py speaks the demo video and timings its captions.
+    # It is not needed to run or verify the project — only to rebuild the video
+    # — so it is a dev dependency, but it is declared rather than assumed: a
+    # script that silently fails on a clean checkout is a reproduction claim
+    # that only holds on the machine it was written on.
+    "edge-tts>=7.0",
 ]
 
 [project.scripts]
