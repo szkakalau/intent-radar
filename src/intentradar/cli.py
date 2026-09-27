@@ -16,13 +16,15 @@ import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from intentradar import __version__
 from intentradar.budget import BudgetGuard, RunGates
 from intentradar.config import Settings, Watchlist
 from intentradar.errors import IntentRadarError
-from intentradar.eval import EvalDataset, EvalRunner
-from intentradar.llm import LLMConfig, NemotronClient
+from intentradar.eval import EvalDataset, EvalRunner, EvalScorer
+from intentradar.judge import AVAILABLE_LAYERS
+from intentradar.llm import build_client
 from intentradar.pipeline import Pipeline
 
 log = logging.getLogger("intentradar")
@@ -76,6 +78,17 @@ def build_parser() -> argparse.ArgumentParser:
     eval_export.add_argument("--testset", required=True)
     eval_export.add_argument("--format", choices=["csv", "jsonl"], default="csv")
     eval_export.add_argument("--out", default="", help="output path (default ./<testset>.<fmt>)")
+
+    eval_score = eval_sub.add_parser(
+        "score", help="precision / recall / F1 for rule_v3 vs rule_v3+llm (needs labels.csv)"
+    )
+    eval_score.add_argument("--testset", required=True)
+    eval_score.add_argument("--min-score", type=int, default=0, help="0 = use the dataset's min_score")
+    eval_score.add_argument(
+        "--layers",
+        default="",
+        help="comma-separated layers to compare (default: rule_v3,rule_v3+llm)",
+    )
 
     eval_snap = eval_sub.add_parser("snapshot", help="freeze a new testset from a live run")
     eval_snap.add_argument("--project", required=True)
@@ -138,14 +151,19 @@ def cmd_config_check(args: argparse.Namespace, settings: Settings) -> int:
     print(f"  repo root        {settings.repo_root}")
     print(f"  data dir         {settings.data_dir}")
     print(f"  watchlist        {settings.watchlist_path} (schema v{watchlist.version})")
+    llm = settings.describe_llm()
     print(f"  SCRAPECREATORS   {_mask(settings.scrape_key)}")
-    print(f"  NEBIUS_API_KEY   {_mask(settings.nebius_key)}")
-    print(f"  NEBIUS_BASE_URL  {settings.nebius_base_url}")
-    print(f"  model everyday   {settings.model_everyday or '(empty — required once you have a key)'}")
-    print(f"  model reasoning  {settings.model_reasoning or '(empty — required once you have a key)'}")
-    print(f"  llm mode         {'mock' if settings.mock_enabled else 'live'}")
+    print(f"  LLM api key      {_mask(settings.llm_api_key)}  (from {llm['api_key_from']})")
+    print(f"  LLM base url     {llm['base_url']}  (from {llm['base_url_from']})")
     print(
-        f"  gates            max_posts_per_source={settings.max_posts_per_source} "
+        f"  model everyday   {llm['model'] or '(empty — required once you have a key)'}"
+        f"  (from {llm['model_from']})"
+    )
+    print(f"  model reasoning  {settings.model_reasoning or '(empty — optional)'}")
+    print(f"  llm mode         {llm['mode']}")
+    print(f"  judge layers     {', '.join(AVAILABLE_LAYERS)}")
+    print(
+        f"  gates            max_posts_per_source={settings.max_posts_per_source}/sub "
         f"max_llm_calls={settings.max_llm_calls} "
         f"monthly_budget=${settings.monthly_budget_usd:.2f}"
     )
@@ -165,29 +183,22 @@ def cmd_llm_hello(args: argparse.Namespace, settings: Settings) -> int:
     budget = BudgetGuard(path=settings.usage_path, monthly_budget_usd=settings.monthly_budget_usd)
     gates = RunGates(max_llm_calls=settings.max_llm_calls, max_posts_per_source=settings.max_posts_per_source)
 
-    config = LLMConfig(
-        api_key=settings.nebius_key,
-        base_url=settings.nebius_base_url,
-        model=settings.model_everyday,
-        model_reasoning=settings.model_reasoning,
-        cache_dir=settings.cache_dir,
-        mock=settings.mock_enabled,
-        allow_unpriced=settings.allow_unpriced,
-    )
-    client = NemotronClient(config=config, budget=budget, gates=gates)
+    client = build_client(settings, budget=budget, gates=gates)
 
     if args.list_models:
         models = client.list_models()
-        print(f"{len(models)} models available at {settings.nebius_base_url}")
+        print(f"{len(models)} models available at {settings.llm_endpoint}")
         for model in models[:50]:
             print(f"  {model}")
         return EXIT_OK
 
     if client.is_mock:
-        print("MOCK MODE — no NEBIUS_API_KEY found, nothing was billed.")
-        print("  → copy .env.example to .env and set NEBIUS_API_KEY")
-        print("  → then set NEBIUS_MODEL_EVERYDAY / NEBIUS_MODEL_REASONING to the real")
-        print("    slugs from the Nebius Token Factory docs (do not guess the casing)")
+        print("MOCK MODE — no LLM API key found, nothing was billed.")
+        print("  → copy .env.example to .env and set INTENTRADAR_LLM_API_KEY")
+        print("    (or NEBIUS_API_KEY) plus INTENTRADAR_LLM_BASE_URL if you are not")
+        print("    using Nebius Token Factory")
+        print("  → then set INTENTRADAR_LLM_MODEL (or NEBIUS_MODEL_EVERYDAY) to the")
+        print("    exact slug from your provider's model list (do not guess the casing)")
     else:
         # A key without a slug is a configuration error, not a runtime surprise.
         settings.require_model(args.tier)
@@ -230,6 +241,42 @@ def cmd_eval_export(args: argparse.Namespace, settings: Settings) -> int:
     out = Path(args.out) if args.out else Path(f"{args.testset}.{args.format}")
     path = runner.export(report, args.format, out)
     print(f"exported {report.hit_count} hits → {path}")
+    return EXIT_OK
+
+
+def cmd_eval_score(args: argparse.Namespace, settings: Settings) -> int:
+    """`intentradar eval score` — the published accuracy, both layers, no hiding."""
+    from intentradar.judge import get_judge
+    from intentradar.llm import build_client
+
+    dataset = EvalDataset.load(args.testset, settings.testset_dir)
+    watchlist = Watchlist.load(settings.watchlist_path)
+    project = watchlist.get(str(dataset.meta.get("project") or ""))
+
+    requested = [s.strip() for s in args.layers.split(",") if s.strip()]
+    layers = requested or ["rule_v3", "rule_v3+llm"]
+
+    judges: list[Any] = []
+    for layer in layers:
+        if layer == "rule_v3+llm":
+            # Budget + gates are attached so a scoring run cannot silently spend
+            # more than the operator allowed.
+            client = build_client(
+                settings,
+                budget=BudgetGuard(
+                    path=settings.usage_path, monthly_budget_usd=settings.monthly_budget_usd
+                ),
+                gates=RunGates(
+                    max_llm_calls=settings.max_llm_calls,
+                    max_posts_per_source=settings.max_posts_per_source,
+                ),
+            )
+            judges.append(get_judge(layer, client=client))
+        else:
+            judges.append(get_judge(layer))
+
+    report = EvalScorer(judges).score(dataset, project=project, min_score=args.min_score or None)
+    print(report.render())
     return EXIT_OK
 
 
@@ -303,6 +350,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return cmd_eval_run(args, settings)
             if args.eval_command == "export":
                 return cmd_eval_export(args, settings)
+            if args.eval_command == "score":
+                return cmd_eval_score(args, settings)
             if args.eval_command == "snapshot":
                 return cmd_eval_snapshot(args, settings)
         if args.command == "budget":

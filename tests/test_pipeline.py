@@ -150,15 +150,22 @@ def test_dry_run_does_not_persist_state(tmp_data_dir: Path) -> None:
     assert not Path(settings.state_path).exists()
 
 
-def test_soft_post_cap_stops_collection(tmp_data_dir: Path) -> None:
-    """MAX_POSTS_PER_SOURCE is a soft cap: fewer posts, no exception."""
+def test_soft_post_cap_is_per_source_not_per_run(tmp_data_dir: Path) -> None:
+    """MAX_POSTS_PER_SOURCE caps each subreddit; it is not a run-wide budget.
+
+    The corpus has 5 posts in r/Anki and 1 in r/GetStudying. With a cap of 2 the
+    old global counter stopped the whole project after 2 posts; the correct
+    behaviour is 2 from Anki + 1 from GetStudying = 3.
+    """
     settings = _settings(tmp_data_dir)
     watchlist = Watchlist.load(WATCHLIST_PATH)
     gates = RunGates(max_posts_per_source=2, max_llm_calls=50)
     pipeline = Pipeline(settings=settings, watchlist=watchlist, provider=_StubProvider(CORPUS),
                         gates=gates, now_fn=lambda: FIXED_NOW)
     result = pipeline.run_project(watchlist.get("Einprag"))
-    assert result.scanned <= 2
+    assert result.scanned == 3, result.scanned
+    assert gates.posts_for("Anki") == 3  # 2 kept + 1 rejected
+    assert gates.posts_for("GetStudying") == 1
 
 
 def test_budget_exhausted_refuses_to_run(tmp_data_dir: Path) -> None:

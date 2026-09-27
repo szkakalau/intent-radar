@@ -7,9 +7,13 @@ why any of them was chosen. IntentRadar does the opposite — every lead ships w
 machine-readable evidence, the hit rate is published, and a stranger can recompute
 our number on their own machine with one command.
 
-> Status: **W1 — foundation**. Rule-based judgment only. The semantic
-> (Nemotron) layer and the accuracy comparison experiment are W2 and are
-> deliberately not published yet.
+> Status: **W2 — semantic layer.** `rule_v3` (regex) is the published baseline;
+> `rule_v3+llm` adds an LLM precision check on top of it. `eval score` prints
+> precision / recall / F1 for **both** layers side by side.
+>
+> Read [Accuracy](#accuracy) before you trust any number here: the rule layer's
+> measured precision against our labelled ground truth is **0%**. We publish it
+> because the alternative is a number nobody can check.
 
 ---
 
@@ -44,6 +48,7 @@ uv run intentradar eval run --testset einprag-2026-09-27
 | `intentradar config check` | Validate `.env` + `config/watchlist.json` before anything runs |
 | `intentradar llm hello` | Smoke-test the Nemotron client (works in mock mode without a key) |
 | `intentradar eval run` | Recompute the published baseline, offline |
+| `intentradar eval score` | Precision / recall / F1 for `rule_v3` vs `rule_v3+llm`, against `labels.csv` |
 | `intentradar eval export` | Export hits to CSV / JSONL for third-party review |
 | `intentradar eval snapshot` | Freeze a new testset from a live collection run |
 | `intentradar budget` | Show / reset monthly usage |
@@ -87,13 +92,61 @@ The second snapshot, `bootstrap-2026-09-27` (our own dog-fooding project), is
 > denominator moved. We publish the frozen snapshot's own number rather than
 > retro-fitting the data to 208.
 
-**Y is not published yet.** Y = noise rate after adding the Nemotron semantic
-layer. The X → Y comparison is the single focus of W2, and it will only be
-published once it is reproducible too.
+### Measured accuracy: `eval score` (W2)
+
+A hit rate alone says nothing about whether the hits are any good. `eval score`
+compares the two layers against the human ground truth in
+`data/testset/<id>/labels.csv` and prints **both** columns:
+
+```
+$ intentradar eval score --testset einprag-2026-09-27
+
+testset : einprag-2026-09-27   (frozen 2026-09-27)
+project : Einprag   min_score=5
+labels  : 211 rows · 184 labeled (7 actionable / 177 not) · 0 unlabeled · 27 borderline
+──────────────────────────────────────────────────────────────
+metric                      rule_v3 (v3.0.0)  rule_v3+llm (v3.1.0+llm)
+predicted                                  6                         0
+true positive                              0                         0
+false positive                             4                         0
+false negative                             7                         7
+precision                               0.0%                         -
+recall                                  0.0%                      0.0%
+F1                                         -                         -
+noise rate                            100.0%                         -
+unverified hits                            2                         0
+```
+
+**Read that carefully: `rule_v3` scores 0 true positives out of 4 decided hits.**
+Every post the rule layer flagged was marked `not_actionable` (4) or
+`borderline` (2), and all 7 posts a reviewer marked `actionable` scored below
+the threshold of 5 — so they are all false negatives. This is not a bug in the
+scoring; we cross-checked each id individually. It is the honest measurement of
+a regex heuristic against a human reading the same posts, and we publish it
+because a hidden number is worth nothing.
+
+The `rule_v3+llm` column above is **not a measurement**: with no API key the
+semantic layer runs against the deterministic mock and the report says so. The
+X → Y comparison is only real once a key is configured.
+
+### How the ground truth is handled
+
+| Cell in `labels.csv` | Meaning | Effect on the metrics |
+|---|---|---|
+| `actionable` / `1` | a human would act on this | positive |
+| `not_actionable` / `0` | a human would not | negative |
+| `borderline` | the reviewer genuinely could not decide | **excluded and counted**, never scored as 0 |
+| *(blank)* | not reviewed yet | **excluded and counted** |
+
+A blank or `borderline` cell is never silently turned into "not actionable" —
+that would manufacture false positives and inflate precision. `eval score`
+reports how many rows were excluded so the denominator is visible. An
+unrecognised value is a hard `ConfigError` (exit 2) naming every offending row,
+so a typo is fixed rather than absorbed.
 
 ### Failure cases will be published
 
-A hit rate alone is meaningless without the misses. In W2 we publish the false
+A hit rate alone is meaningless without the misses. We publish the false
 positives and false negatives of each layer, why each one failed, and the
 per-lead token cost. If the semantic layer does not beat X, we publish that too.
 
@@ -125,7 +178,7 @@ fastest way to burn the whole credit balance:
 
 | Guard | Default | Behaviour |
 |---|---|---|
-| `INTENTRADAR_MAX_POSTS_PER_SOURCE` | 200 | soft cap — stop paginating, warn, keep going |
+| `INTENTRADAR_MAX_POSTS_PER_SOURCE` | 200 | soft cap **per subreddit** — stop pulling from that source, warn, keep going with the others |
 | `INTENTRADAR_MAX_LLM_CALLS` | 50 | **hard stop** — raise on the call that exceeds it |
 | `INTENTRADAR_MONTHLY_BUDGET_USD` | 20 | persisted to `data/usage.json`; 90% warns, 100% refuses to run |
 
@@ -146,6 +199,13 @@ missing from `MODEL_PRICING` is refused before the request is sent.
 Copy `.env.example` to `.env`. Reading order is process env → repo `.env` →
 built-in defaults. All paths resolve against `INTENTRADAR_DATA_DIR`, never
 against the current working directory.
+
+The LLM endpoint is configurable. `INTENTRADAR_LLM_BASE_URL` /
+`INTENTRADAR_LLM_API_KEY` / `INTENTRADAR_LLM_MODEL` override the `NEBIUS_*`
+defaults, so the semantic layer can point at **any OpenAI-compatible server**
+(`POST /v1/chat/completions`) — useful because Nebius Token Factory's
+billing-country list does not cover every country. `config check` prints which
+variable supplied each value.
 
 `config/watchlist.json` (schema v2) holds one block per project:
 `subreddits` / `keywords` / `competitors` / `min_score`. A missing or
@@ -181,8 +241,8 @@ Layout:
 ```
 src/intentradar/
   collect/    data-source providers (ScrapeCreators; fallback is an interface stub)
-  judge/      Judge protocol + rule_v3 (verbatim port of the production script)
-  llm/        Nemotron client: one shell, mock + http backends
+  judge/      Judge protocol + rule_v3 (verbatim port) + llm.py (semantic layer)
+  llm/        OpenAI-compatible client: one shell, mock + http backends
   budget.py   monthly budget + per-run gates
   pipeline.py collect → judge → dedupe → report
   eval.py     frozen testsets, offline recomputation, exports

@@ -103,6 +103,17 @@ class Settings:
     model_everyday: str = ""
     model_reasoning: str = ""
 
+    # Resolved LLM endpoint. The INTENTRADAR_LLM_* variables win over NEBIUS_*
+    # so the semantic layer can be pointed at any OpenAI-compatible server
+    # (Nebius Token Factory is the default, but the onboarding form does not
+    # list every billing country, so a fallback endpoint must be possible).
+    llm_base_url: str = DEFAULT_NEBUS_BASE_URL
+    llm_api_key: str = ""
+    llm_model: str = ""
+    llm_base_url_var: str = "NEBIUS_BASE_URL"
+    llm_api_key_var: str = "NEBIUS_API_KEY"
+    llm_model_var: str = "NEBIUS_MODEL_EVERYDAY"
+
     max_posts_per_source: int = DEFAULT_MAX_POSTS_PER_SOURCE
     max_llm_calls: int = DEFAULT_MAX_LLM_CALLS
     monthly_budget_usd: float = DEFAULT_MONTHLY_BUDGET_USD
@@ -143,13 +154,41 @@ class Settings:
             return True
         if self.llm_mock == "0":
             return False
-        return not self.nebius_key
+        return not self.llm_api_key
+
+    @property
+    def llm_endpoint(self) -> str:
+        """The base URL the semantic layer will actually call."""
+        return self.llm_base_url or DEFAULT_NEBUS_BASE_URL
+
+    def describe_llm(self) -> dict[str, str]:
+        """Resolved endpoint plus *which* env var supplied each value.
+
+        Printed by ``config check`` — with two possible sources per setting,
+        "why is it calling that URL?" has to be answerable without reading code.
+        """
+        return {
+            "base_url": self.llm_endpoint,
+            "base_url_from": self.llm_base_url_var,
+            "api_key_from": self.llm_api_key_var,
+            "model": self.llm_model,
+            "model_from": self.llm_model_var,
+            "mode": "mock" if self.mock_enabled else "live",
+        }
 
     @classmethod
     def from_env(cls, root: Path | None = None) -> Settings:
         """Build settings from process env, then repo-root .env, then defaults."""
         repo_root = Path(root) if root else _find_repo_root()
         load_dotenv(repo_root / ".env", override=False)
+
+        # INTENTRADAR_LLM_* overrides NEBIUS_*, value and provenance together.
+        nebius_base_url = _env_str("NEBIUS_BASE_URL", DEFAULT_NEBUS_BASE_URL)
+        override_base_url = _env_str("INTENTRADAR_LLM_BASE_URL")
+        nebius_key = _env_str("NEBIUS_API_KEY")
+        override_key = _env_str("INTENTRADAR_LLM_API_KEY")
+        model_everyday = _env_str("NEBIUS_MODEL_EVERYDAY")
+        override_model = _env_str("INTENTRADAR_LLM_MODEL")
 
         data_dir_raw = _env_str("INTENTRADAR_DATA_DIR")
         data_dir = Path(data_dir_raw) if data_dir_raw else repo_root / "data"
@@ -167,10 +206,22 @@ class Settings:
             data_dir=data_dir,
             watchlist_path=watchlist_path,
             scrape_key=_env_str("SCRAPECREATORS_API_KEY"),
-            nebius_key=_env_str("NEBIUS_API_KEY"),
-            nebius_base_url=_env_str("NEBIUS_BASE_URL", DEFAULT_NEBUS_BASE_URL),
-            model_everyday=_env_str("NEBIUS_MODEL_EVERYDAY"),
+            nebius_key=nebius_key,
+            nebius_base_url=nebius_base_url,
+            model_everyday=model_everyday,
             model_reasoning=_env_str("NEBIUS_MODEL_REASONING"),
+            llm_base_url=override_base_url or nebius_base_url,
+            llm_api_key=override_key or nebius_key,
+            llm_model=override_model or model_everyday,
+            llm_base_url_var=(
+                "INTENTRADAR_LLM_BASE_URL" if override_base_url else "NEBIUS_BASE_URL"
+            ),
+            llm_api_key_var=(
+                "INTENTRADAR_LLM_API_KEY" if override_key else "NEBIUS_API_KEY"
+            ),
+            llm_model_var=(
+                "INTENTRADAR_LLM_MODEL" if override_model else "NEBIUS_MODEL_EVERYDAY"
+            ),
             max_posts_per_source=_env_int(
                 "INTENTRADAR_MAX_POSTS_PER_SOURCE", DEFAULT_MAX_POSTS_PER_SOURCE
             ),
@@ -191,15 +242,15 @@ class Settings:
             )
         return self.scrape_key
 
-    def require_model(self, tier: str) -> str:
+    def require_model(self, tier: str = "everyday") -> str:
         """Return the model slug for ``tier`` or explain how to obtain it."""
-        slug = self.model_reasoning if tier == "reasoning" else self.model_everyday
+        slug = self.model_reasoning if tier == "reasoning" else self.llm_model
         if slug:
             return slug
-        var = "NEBIUS_MODEL_REASONING" if tier == "reasoning" else "NEBIUS_MODEL_EVERYDAY"
+        var = "NEBIUS_MODEL_REASONING" if tier == "reasoning" else self.llm_model_var
         raise ConfigError(
             f"env {var}: expected a real model slug, got empty — "
-            "copy the exact slug from the Nebius Token Factory docs / playground "
+            "copy the exact slug from your provider's model list / playground "
             "(do not guess, the casing differs per model) and put it in .env"
         )
 

@@ -122,10 +122,7 @@ class Pipeline:
         posts: list[Post] = []
         charged = 0
         remaining: int | None = None
-        cap_reached = False
         for sub in project.subreddits:
-            if cap_reached:
-                break
             try:
                 result = self.provider.fetch_subreddit(sub, pages=pages, cache=cache)
             except ProviderError as exc:
@@ -137,9 +134,9 @@ class Pipeline:
             if result.credits_remaining is not None:
                 remaining = result.credits_remaining
             for post in result.posts:
-                if not self.gates.count_post():
-                    # Soft cap: stop pulling more posts, but keep the run alive.
-                    cap_reached = True
+                # The cap is per source: once this subreddit is full we stop
+                # pulling from it, but the other subreddits still get scanned.
+                if not self.gates.count_post(sub):
                     break
                 posts.append(post)
         if charged:

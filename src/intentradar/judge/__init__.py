@@ -1,20 +1,37 @@
 """Judgment layer: a Strategy protocol plus a factory.
 
-W1 ships a single implementation (``rule_v3``). W2 adds ``rule_v3+llm`` by
+W1 shipped a single implementation (``rule_v3``). W2 adds ``rule_v3+llm`` by
 registering it in :func:`get_judge` — the pipeline does not change.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from intentradar.config import ProjectConfig
-from intentradar.models import JUDGE_VERSION, LAYER_RULE_V3, Judgment, Post
+from intentradar.models import (
+    JUDGE_VERSION,
+    JUDGE_VERSION_LLM,
+    LAYER_RULE_V3,
+    LAYER_RULE_V3_LLM,
+    Judgment,
+    Post,
+)
 
 log = logging.getLogger(__name__)
 
-__all__ = ["Judge", "get_judge", "LAYER_RULE_V3"]
+__all__ = [
+    "Judge",
+    "get_judge",
+    "AVAILABLE_LAYERS",
+    "LAYER_RULE_V3",
+    "LAYER_RULE_V3_LLM",
+    "JUDGE_VERSION",
+    "JUDGE_VERSION_LLM",
+]
+
+AVAILABLE_LAYERS = (LAYER_RULE_V3, LAYER_RULE_V3_LLM)
 
 
 @runtime_checkable
@@ -28,24 +45,35 @@ class Judge(Protocol):
         """Score one post. Pure function: no network, no file I/O."""
         ...
 
+    def is_noise(self, post: Post) -> bool:
+        """Whether the post is an official / megathread post to drop silently."""
+        ...
 
-def get_judge(layer: str = LAYER_RULE_V3) -> Judge:
+
+def get_judge(layer: str = LAYER_RULE_V3, client: Any = None) -> Judge:
     """Return the judge implementation for ``layer``.
+
+    Args:
+        layer: ``rule_v3`` or ``rule_v3+llm``.
+        client: optional pre-built LLM client for the semantic layer. When it is
+            ``None`` the judge builds one from the environment on first use
+            (mock when no key is configured).
 
     Raises:
         ConfigError: if the layer is unknown.
     """
     from intentradar.errors import ConfigError
+    from intentradar.judge.llm import LLMJudge
     from intentradar.judge.rule_v3 import RuleV3Judge
 
-    registry: dict[str, Judge] = {
-        LAYER_RULE_V3: RuleV3Judge(),
-    }
-    judge: Judge | None = registry.get(layer)
-    if judge is None:
+    if layer == LAYER_RULE_V3_LLM:
+        judge: Judge = LLMJudge(client=client)
+    elif layer == LAYER_RULE_V3:
+        judge = RuleV3Judge()
+    else:
         raise ConfigError(
             f"judge layer {layer!r} is not implemented "
-            f"(available: {', '.join(sorted(registry))})"
+            f"(available: {', '.join(AVAILABLE_LAYERS)})"
         )
     log.debug("judge layer=%s version=%s", judge.layer, judge.judge_version)
     return judge

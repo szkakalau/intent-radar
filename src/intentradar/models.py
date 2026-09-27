@@ -19,7 +19,11 @@ from typing import Any
 # Bump JUDGE_VERSION whenever scoring behaviour changes; otherwise the published
 # accuracy number cannot be interpreted.
 JUDGE_VERSION = "v3.0.0"
-LAYER_RULE_V3 = "rule_v3"  # W2 will add "rule_v3+llm"
+LAYER_RULE_V3 = "rule_v3"  # regex only — the frozen baselines
+# W2: rule-layer candidates confirmed by an LLM. Subtractive by design — see
+# intentradar/judge/llm.py — so its recall can never exceed the rule layer's.
+LAYER_RULE_V3_LLM = "rule_v3+llm"
+JUDGE_VERSION_LLM = "v3.1.0+llm"
 
 
 class Signal(StrEnum):
@@ -203,6 +207,15 @@ class Judgment:
     layer: str = LAYER_RULE_V3
     judge_version: str = JUDGE_VERSION
 
+    # ── W2 semantic layer ──────────────────────────────────────────────────
+    # All default to "the LLM was not asked", so every record the rule layer
+    # produces stays byte-identical to the frozen baselines.
+    llm_verdict: bool | None = None  # True = actionable, None = not asked
+    llm_confidence: float | None = None
+    llm_reason: str = ""
+    llm_model: str = ""
+    llm_error: str = ""  # non-empty => the verdict is a fallback, not a judgment
+
     def to_dict(self) -> dict[str, Any]:
         """Serialise the judgment part of the contract."""
         return {
@@ -212,6 +225,11 @@ class Judgment:
             "why": self.why,
             "layer": self.layer,
             "judge_version": self.judge_version,
+            "llm_verdict": self.llm_verdict,
+            "llm_confidence": self.llm_confidence,
+            "llm_reason": self.llm_reason,
+            "llm_model": self.llm_model,
+            "llm_error": self.llm_error,
         }
 
     @classmethod
@@ -219,6 +237,7 @@ class Judgment:
         """Deserialise a judgment previously written by :meth:`to_dict`."""
         evidence = [Evidence.from_dict(e) for e in raw.get("evidence", []) or []]
         signals = list(raw.get("signals", []) or [])
+        confidence = raw.get("llm_confidence")
         return cls(
             score=int(raw.get("score", 0)),
             signals=signals,
@@ -226,6 +245,11 @@ class Judgment:
             why=list(raw.get("why", []) or []),
             layer=str(raw.get("layer", LAYER_RULE_V3)),
             judge_version=str(raw.get("judge_version", JUDGE_VERSION)),
+            llm_verdict=raw.get("llm_verdict"),
+            llm_confidence=None if confidence is None else float(confidence),
+            llm_reason=str(raw.get("llm_reason") or ""),
+            llm_model=str(raw.get("llm_model") or ""),
+            llm_error=str(raw.get("llm_error") or ""),
         )
 
 
@@ -254,6 +278,11 @@ class Lead:
             "why": j.why,
             "layer": j.layer,
             "judge_version": j.judge_version,
+            "llm_verdict": j.llm_verdict,
+            "llm_confidence": j.llm_confidence,
+            "llm_reason": j.llm_reason,
+            "llm_model": j.llm_model,
+            "llm_error": j.llm_error,
             "judged_at": self.judged_at,
             "text": self.post.text[:400],
         }
@@ -277,5 +306,12 @@ class Lead:
             why=list(raw.get("why", []) or []),
             layer=str(raw.get("layer", LAYER_RULE_V3)),
             judge_version=str(raw.get("judge_version", JUDGE_VERSION)),
+            llm_verdict=raw.get("llm_verdict"),
+            llm_confidence=(
+                None if raw.get("llm_confidence") is None else float(raw["llm_confidence"])
+            ),
+            llm_reason=str(raw.get("llm_reason") or ""),
+            llm_model=str(raw.get("llm_model") or ""),
+            llm_error=str(raw.get("llm_error") or ""),
         )
         return cls(post=post, judgment=judgment, judged_at=str(raw.get("judged_at") or ""))

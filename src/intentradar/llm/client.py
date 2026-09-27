@@ -36,6 +36,10 @@ PRICING_FALLBACK_PER_1M: dict[str, float] = {"in": 0.30, "out": 1.20}
 MOCK_MODEL = "mock/nemotron-everyday"
 MOCK_REASONING_MODEL = "mock/nemotron-reasoning"
 
+# Default endpoint. Any OpenAI-compatible server works — override it with
+# INTENTRADAR_LLM_BASE_URL / NEBIUS_BASE_URL.
+DEFAULT_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
+
 
 @dataclass
 class LLMResponse:
@@ -59,7 +63,7 @@ class LLMConfig:
     """Connection + behaviour settings for one client instance."""
 
     api_key: str = ""
-    base_url: str = "https://api.tokenfactory.nebius.com/v1"
+    base_url: str = DEFAULT_BASE_URL
     model: str = ""
     model_reasoning: str = ""
     timeout_s: float = 60.0
@@ -77,6 +81,23 @@ class LLMConfig:
         if tier == "reasoning":
             return self.model_reasoning or self.model
         return self.model
+
+    @classmethod
+    def from_settings(cls, settings: Any) -> LLMConfig:
+        """Build from a :class:`~intentradar.config.Settings`.
+
+        ``getattr`` on purpose: it keeps ``llm/`` free of an import cycle and
+        lets a duck-typed settings object be used in tests.
+        """
+        return cls(
+            api_key=str(getattr(settings, "llm_api_key", "") or ""),
+            base_url=str(getattr(settings, "llm_base_url", "") or DEFAULT_BASE_URL),
+            model=str(getattr(settings, "llm_model", "") or ""),
+            model_reasoning=str(getattr(settings, "model_reasoning", "") or ""),
+            cache_dir=getattr(settings, "cache_dir", None),
+            mock=bool(getattr(settings, "mock_enabled", True)),
+            allow_unpriced=bool(getattr(settings, "allow_unpriced", True)),
+        )
 
 
 def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
@@ -269,8 +290,8 @@ class NemotronClient:
         """Build the real backend (Nebius)."""
         if not self.config.api_key:
             raise ConfigError(
-                "env NEBIUS_API_KEY: expected a key for live calls, got empty — "
-                "set it in .env, or leave it unset to run in mock mode"
+                "no LLM API key for live calls — set INTENTRADAR_LLM_API_KEY "
+                "(or NEBIUS_API_KEY) in .env, or leave both unset to run in mock mode"
             )
         return HttpBackend(
             api_key=self.config.api_key,

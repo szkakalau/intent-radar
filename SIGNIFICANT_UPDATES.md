@@ -63,4 +63,71 @@ We publish the frozen snapshot's own number instead of retro-fitting the data.
 
 ---
 
+## W2 — 2026-10-04 → 2026-10-10 · Semantic layer + measured accuracy
+
+**Scope of this week:** the LLM judgment layer (`rule_v3+llm`), a configurable
+LLM backend, the `eval score` command that measures precision / recall / F1 for
+both layers, and a semantics fix in the collection gate.
+
+### What was built
+
+| # | Update | Why it matters |
+|---|---|---|
+| 1 | **`judge/llm.py` — the `rule_v3+llm` layer.** Rule-layer candidates (score ≥ 3) are confirmed by an LLM that must answer `{is_actionable, confidence, reason}`. The judgment criteria are **hard-coded in `SYSTEM_PROMPT`**, not passed as free-form instructions. | Reproducibility: two people on the same commit ask the model the identical question, so the published precision can be recomputed. |
+| 2 | **The layer is subtractive by design.** It can remove a rule hit; it can never invent one. Its evidence (`llm_verdict` / `llm_confidence` / `llm_reason` / `llm_model` / `llm_error`) is persisted on every judgment. | Recall stays bounded by the rule layer, so the precision/recall trade-off is a property of the design rather than an accident. Every lead stays auditable without re-running. |
+| 3 | **Configurable LLM backend.** `INTENTRADAR_LLM_BASE_URL` / `_API_KEY` / `_MODEL` override `NEBIUS_*`; the protocol stays OpenAI-compatible. `config check` prints which variable supplied each value. | Nebius Token Factory's billing-country list does not include every country, so onboarding can be blocked. The tool must not be hard-wired to one vendor. |
+| 4 | **`intentradar eval score`** — precision / recall / F1 / noise rate for `rule_v3` and `rule_v3+llm` **side by side**, from `data/testset/<id>/labels.csv`. | This is the "publish the accuracy" promise finally made measurable, with both numbers shown including the ugly one. |
+| 5 | **Ground-truth honesty rules in `LabelSet`.** Blank = unreviewed, `borderline` = undecidable; both are excluded from every ratio **and counted**. An unrecognised label is a `ConfigError` naming every offending row. | Never silently scoring an undecided row as 0 would manufacture false positives and inflate precision. |
+| 6 | **`MAX_POSTS_PER_SOURCE` is now really per source.** The counter was a single global `posts_seen` compared against a per-source cap, so 5 subreddits × 40 posts tripped a cap of 200 and silently truncated the last subreddit. Counting moved into `posts_per_source[sub]`; `posts_seen` survives as a display total only and the summary reads `posts 200 (max/source 200, 5 sources)`. | The name promised per-source, the implementation was per-run. Two tests pin both directions (5×40 must not trip; one source over the limit must trip). |
+
+### Numbers
+
+`intentradar eval run` is unchanged and still matches the frozen baselines:
+
+| Testset | Posts in window | Hits | Hit rate |
+|---|---|---|---|
+| `einprag-2026-09-27` | 211 | 6 | **2.8%** (MATCH) |
+| `bootstrap-2026-09-27` | 137 | 12 | 8.8% (MATCH) |
+
+`intentradar eval score` against the reviewed ground truth (184 of 211 rows
+decided, 27 `borderline`, 0 unreviewed):
+
+| | `rule_v3` | `rule_v3+llm` |
+|---|---|---|
+| predicted | 6 | 0 |
+| true positive | 0 | 0 |
+| false positive | 4 | 0 |
+| false negative | 7 | 7 |
+| **precision** | **0.0%** | not measured (mock) |
+| **recall** | **0.0%** | not measured (mock) |
+
+**This is the finding of the week, and it is bad: `rule_v3` has 0 true
+positives.** All 6 rule hits were labelled `not_actionable` (4) or `borderline`
+(2); all 7 posts a reviewer marked `actionable` scored below the threshold of 5
+and became false negatives. We verified each id individually — this is not a
+scoring bug, it is what a regex heuristic actually scores against a human
+reading the same 211 posts. We are publishing it rather than tuning thresholds
+until the number looks better, because a hidden number is worth nothing.
+
+The `rule_v3+llm` column is **not** a measurement: with no API key configured
+the semantic layer runs against the deterministic mock, and the report prints
+that warning explicitly. Real X → Y numbers require a working endpoint.
+
+### Known limitations, stated honestly
+
+- **The semantic layer is unmeasured.** No LLM endpoint is reachable from this
+  machine (Nebius onboarding is blocked), so `rule_v3+llm` numbers here are mock
+  output. The code path, the prompt, the parsing and the failure policy are all
+  tested offline with a fake client; the accuracy is not.
+- The ground truth is an AI-assisted draft pass (`reviewer=ai-draft`), not a
+  careful multi-human adjudication. The 0% figure should be re-measured once a
+  human reviews the same rows.
+- The LLM layer is subtractive only: it cannot rescue a post the rule layer
+  scored below `candidate_min_score=3`, which is where most of the 7 false
+  negatives live. Fixing that is W3 work, not a silent tweak.
+- Only one data-source provider exists (ScrapeCreators). Provider fallback is
+  an interface stub, not implemented.
+
+---
+
 _Each subsequent week will be appended below._

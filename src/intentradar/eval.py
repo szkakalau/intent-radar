@@ -11,7 +11,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -39,11 +39,25 @@ CSV_COLUMNS = [
     "why",
     "layer",
     "judge_version",
+    "llm_verdict",
+    "llm_confidence",
+    "llm_reason",
+    "llm_model",
+    "llm_error",
     "judged_at",
     "label",
 ]
 
 LABEL_COLUMNS = ["id", "permalink", "title", "label", "reviewer", "notes"]
+
+# Accepted spellings for one ground-truth cell. Anything else is a typo and is
+# reported as such — an unreadable label must never become a silent 0.
+LABEL_TRUE_TOKENS = {"1", "true", "yes", "y", "t", "actionable", "是"}
+LABEL_FALSE_TOKENS = {"0", "false", "no", "n", "f", "not_actionable", "否"}
+# "The reviewer genuinely could not decide." Real information, but not ground
+# truth: these rows are excluded from every metric and counted, exactly like a
+# blank cell. Never collapsed into 0 — that would manufacture false positives.
+LABEL_BORDERLINE_TOKENS = {"borderline", "unsure", "maybe", "?", "2"}
 
 
 @dataclass
@@ -103,6 +117,7 @@ class EvalDataset:
     meta: dict[str, Any]
     posts: list[Post]
     expected_hits: list[dict[str, Any]] = field(default_factory=list)
+    base_dir: Path = field(default_factory=Path)
 
     # ── loading ────────────────────────────────────────────────────────────
     @staticmethod
@@ -138,7 +153,14 @@ class EvalDataset:
         expected_path = base / "expected_hits.json"
         if expected_path.exists():
             expected = json.loads(expected_path.read_text(encoding="utf-8"))
-        return cls(testset_id=testset_id, meta=meta, posts=posts, expected_hits=expected)
+        return cls(
+            testset_id=testset_id, meta=meta, posts=posts, expected_hits=expected, base_dir=base
+        )
+
+    # ── labels ─────────────────────────────────────────────────────────────
+    def load_labels(self) -> LabelSet:
+        """Read ``labels.csv`` next to ``posts.jsonl``."""
+        return LabelSet.load(self.base_dir / "labels.csv", self.testset_id)
 
     # ── derived helpers ────────────────────────────────────────────────────
     @property
@@ -360,3 +382,347 @@ class EvalRunner:
             raise ConfigError(f"export format {fmt!r}: expected csv or jsonl")
         log.info("exported %d hits to %s", len(report.hits), out_path)
         return out_path
+
+
+# ── ground truth + scoring (W2) ─────────────────────────────────────────────
+
+
+@dataclass
+class LabelSet:
+    """The human ground truth for one dataset.
+
+    A blank cell means "not reviewed yet", which is **not** the same as "not
+    actionable": unreviewed rows are excluded from every metric *and counted*, so
+    the reader can see how much of the number is actually backed by a human.
+    """
+
+    labels: dict[str, bool] = field(default_factory=dict)
+    rows: int = 0
+    blank_ids: list[str] = field(default_factory=list)
+    borderline_ids: list[str] = field(default_factory=list)  # reviewer could not decide
+    orphan_ids: list[str] = field(default_factory=list)  # labelled but not in the dataset
+    testset_id: str = ""
+
+    @property
+    def labeled(self) -> int:
+        """Rows with a usable 1/0."""
+        return len(self.labels)
+
+    @property
+    def unlabeled(self) -> int:
+        """Rows a reviewer has not filled in yet."""
+        return len(self.blank_ids)
+
+    @property
+    def borderline(self) -> int:
+        """Rows a reviewer marked as undecidable."""
+        return len(self.borderline_ids)
+
+    @property
+    def undecided_ids(self) -> list[str]:
+        """Every row that carries no usable verdict (blank or borderline)."""
+        return self.blank_ids + self.borderline_ids
+
+    @property
+    def positives(self) -> int:
+        """Rows a human marked actionable."""
+        return sum(1 for v in self.labels.values() if v)
+
+    @property
+    def negatives(self) -> int:
+        """Rows a human marked not actionable."""
+        return sum(1 for v in self.labels.values() if not v)
+
+    @property
+    def complete(self) -> bool:
+        """True when every reviewable row carries a usable verdict."""
+        return self.rows > 0 and not self.undecided_ids
+
+    @classmethod
+    def load(cls, path: Path, testset_id: str = "") -> LabelSet:
+        """Read ``labels.csv``. Missing file = an empty (not fabricated) label set."""
+        path = Path(path)
+        if not path.exists():
+            return cls(testset_id=testset_id)
+        labels: dict[str, bool] = {}
+        blanks: list[str] = []
+        borderline: list[str] = []
+        unknown: list[str] = []
+        rows = 0
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                post_id = str(row.get("id") or "").strip()
+                if not post_id:
+                    continue
+                rows += 1
+                raw = str(row.get("label") or "").strip()
+                if not raw:
+                    blanks.append(post_id)
+                    continue
+                token = raw.lower()
+                if token in LABEL_TRUE_TOKENS:
+                    labels[post_id] = True
+                elif token in LABEL_FALSE_TOKENS:
+                    labels[post_id] = False
+                elif token in LABEL_BORDERLINE_TOKENS:
+                    borderline.append(post_id)
+                else:
+                    # Collected, not raised on the first hit: a reviewer fixing a
+                    # typo should see every bad cell in one pass.
+                    unknown.append(f"{post_id}={raw!r}")
+
+        if unknown:
+            shown = ", ".join(unknown[:10])
+            more = f" (+{len(unknown) - 10} more)" if len(unknown) > 10 else ""
+            raise ConfigError(
+                f"{path.name}: {len(unknown)} row(s) have a label that is not "
+                f"actionable / not_actionable / borderline: {shown}{more}. "
+                f"Fix the typo instead of letting it count as 0."
+            )
+        return cls(
+            labels=labels,
+            rows=rows,
+            blank_ids=blanks,
+            borderline_ids=borderline,
+            testset_id=testset_id,
+        )
+
+    def against(self, post_ids: Iterable[str]) -> tuple[dict[str, bool], list[str]]:
+        """Split labels into (usable, orphan) for one set of post ids."""
+        known = set(post_ids)
+        usable = {k: v for k, v in self.labels.items() if k in known}
+        orphans = sorted(set(self.labels) - known)
+        return usable, orphans
+
+
+@dataclass
+class LayerScore:
+    """Confusion matrix and derived metrics for one judge layer."""
+
+    layer: str
+    judge_version: str
+    predicted: int = 0  # posts the layer put above threshold
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+    tn: int = 0
+    unverified: int = 0  # predicted but the human never labelled it
+    skipped_unlabeled: int = 0  # ground-truth rows excluded for having no label
+    llm_calls: int = 0
+    llm_errors: int = 0
+    mock: bool = False
+
+    @property
+    def precision(self) -> float | None:
+        """TP / (TP + FP). ``None`` when the layer predicted nothing."""
+        denom = self.tp + self.fp
+        if denom == 0:
+            return None
+        return self.tp / denom
+
+    @property
+    def recall(self) -> float | None:
+        """TP / (TP + FN). ``None`` when there is no positive ground truth."""
+        denom = self.tp + self.fn
+        if denom == 0:
+            return None
+        return self.tp / denom
+
+    @property
+    def f1(self) -> float | None:
+        """Harmonic mean of precision and recall; ``None`` when either is."""
+        p = self.precision
+        r = self.recall
+        if p is None or r is None or (p + r) == 0:
+            return None
+        return 2 * p * r / (p + r)
+
+    @property
+    def noise_rate(self) -> float | None:
+        """Share of the layer's hits a human marked not actionable (1 - precision)."""
+        p = self.precision
+        return None if p is None else 1.0 - p
+
+    @property
+    def verified_predictions(self) -> int:
+        """Predictions that a human actually passed judgement on."""
+        return self.tp + self.fp
+
+    @property
+    def title(self) -> str:
+        """``rule_v3 (v3.0.0)`` — the header used in the comparison table."""
+        return f"{self.layer} ({self.judge_version})"
+
+
+@dataclass
+class ScoreReport:
+    """Rule layer vs rule+LLM, computed against the same ground truth."""
+
+    testset_id: str
+    project: str
+    min_score: int
+    labels: LabelSet
+    scores: list[LayerScore]
+    snapshot_date: str = ""
+
+    def render(self) -> str:
+        """Terminal block: both layers side by side, nothing hidden."""
+        sep = "─" * 62
+        lines = [
+            f"testset : {self.testset_id}"
+            + (f"   (frozen {self.snapshot_date})" if self.snapshot_date else ""),
+            f"project : {self.project}   min_score={self.min_score}",
+            f"labels  : {self.labels.rows} rows · {self.labels.labeled} labeled "
+            f"({self.labels.positives} actionable / {self.labels.negatives} not) · "
+            f"{self.labels.unlabeled} unlabeled · {self.labels.borderline} borderline",
+        ]
+        if self.labels.orphan_ids:
+            lines.append(
+                f"          {len(self.labels.orphan_ids)} label(s) reference posts that are "
+                f"not in this testset and were ignored"
+            )
+        lines.append(sep)
+
+        if not self.labels.labeled:
+            lines.append("NO GROUND TRUTH — every label cell is empty.")
+            lines.append(f"  fill in data/testset/{self.testset_id}/labels.csv (label = 1 or 0)")
+            lines.append("  precision/recall cannot be computed from an empty file,")
+            lines.append("  and nothing here is guessed: the counts below are 0 because")
+            lines.append("  there is nothing to compare against, not because the tool failed.")
+            lines.append(sep)
+            for score in self.scores:
+                lines.append(f"{score.title:<34}predicted {score.predicted}")
+            return "\n".join(lines)
+
+        headers = ["metric"] + [s.title for s in self.scores]
+        width = max(22, *(len(h) + 2 for h in headers[1:]))
+        lines.append(f"{'metric':<18}" + "".join(h.rjust(width) for h in headers[1:]))
+
+        def _pct(value: float | None) -> str:
+            return "-" if value is None else f"{value * 100:.1f}%"
+
+        rows: list[tuple[str, list[str]]] = [
+            ("predicted", [str(s.predicted) for s in self.scores]),
+            ("true positive", [str(s.tp) for s in self.scores]),
+            ("false positive", [str(s.fp) for s in self.scores]),
+            ("false negative", [str(s.fn) for s in self.scores]),
+            ("precision", [_pct(s.precision) for s in self.scores]),
+            ("recall", [_pct(s.recall) for s in self.scores]),
+            ("F1", [_pct(s.f1) for s in self.scores]),
+            ("noise rate", [_pct(s.noise_rate) for s in self.scores]),
+            ("unverified hits", [str(s.unverified) for s in self.scores]),
+        ]
+        for name, values in rows:
+            lines.append(f"{name:<18}" + "".join(v.rjust(width) for v in values))
+
+        lines.append(sep)
+        for score in self.scores:
+            if score.layer == LAYER_RULE_V3:
+                continue
+            lines.append(
+                f"llm: {score.llm_calls} calls · {score.llm_errors} errors "
+                f"· backend={'MOCK' if score.mock else 'live'}"
+            )
+            if score.mock:
+                lines.append("  !! the semantic layer ran against the deterministic mock —")
+                lines.append("     its numbers are NOT a measurement. Set an API key to")
+                lines.append("     get real rule_v3+llm figures.")
+            if score.llm_errors:
+                lines.append(
+                    f"  !! {score.llm_errors} post(s) could not be judged by the LLM and were"
+                )
+                lines.append("     scored 0 — recall above is depressed by failures, not by")
+                lines.append("     the model's judgement.")
+
+        if not self.labels.complete:
+            excluded = len(self.labels.undecided_ids)
+            lines.append(
+                f"note: {excluded} of {self.labels.rows} rows carry no usable verdict "
+                f"({self.labels.unlabeled} unlabeled + {self.labels.borderline} borderline); "
+                f"they are excluded from every ratio above, not counted as 0."
+            )
+        return "\n".join(lines)
+
+
+class EvalScorer:
+    """Replays a frozen dataset through several judges and scores them."""
+
+    def __init__(self, judges: Sequence[Judge] | None = None) -> None:
+        """Initialise. Defaults to ``[rule_v3, rule_v3+llm]`` — the comparison."""
+        if judges:
+            self.judges = list(judges)
+        else:
+            self.judges = [get_judge(LAYER_RULE_V3), get_judge("rule_v3+llm")]
+
+    def score(
+        self,
+        dataset: EvalDataset,
+        project: ProjectConfig | None = None,
+        min_score: int | None = None,
+        labels: LabelSet | None = None,
+    ) -> ScoreReport:
+        """Compute precision / recall / F1 per layer against ``labels.csv``."""
+        from intentradar.judge.llm import LLMJudge
+
+        threshold = int(min_score if min_score else dataset.meta.get("min_score") or 5)
+        posts = dataset.in_window()
+        post_ids = [p.id for p in posts if p.id]
+        ground_truth = labels if labels is not None else dataset.load_labels()
+        usable, orphans = ground_truth.against(post_ids)
+        ground_truth.orphan_ids = orphans
+
+        scores: list[LayerScore] = []
+        for judge in self.judges:
+            hits: list[Lead] = []
+            for post in posts:
+                if not post.id:
+                    continue
+                judgment = judge.judge(post, project) if project else None
+                if judgment is None:  # pragma: no cover - project is always resolved
+                    continue
+                if judgment.score < threshold:
+                    continue
+                if judge.is_noise(post):
+                    continue
+                hits.append(Lead(post=post, judgment=judgment))
+            hits = dedupe_leads(hits)
+            predicted = {lead.post.id for lead in hits}
+
+            tp = fp = fn = tn = 0
+            for post_id, is_actionable in usable.items():
+                in_hits = post_id in predicted
+                if in_hits and is_actionable:
+                    tp += 1
+                elif in_hits and not is_actionable:
+                    fp += 1
+                elif not in_hits and is_actionable:
+                    fn += 1
+                else:
+                    tn += 1
+
+            scores.append(
+                LayerScore(
+                    layer=judge.layer,
+                    judge_version=judge.judge_version,
+                    predicted=len(predicted),
+                    tp=tp,
+                    fp=fp,
+                    fn=fn,
+                    tn=tn,
+                    unverified=sum(1 for pid in predicted if pid in ground_truth.undecided_ids),
+                    skipped_unlabeled=len(ground_truth.undecided_ids),
+                    llm_calls=int(getattr(judge, "llm_calls", 0) or 0) if isinstance(judge, LLMJudge) else 0,
+                    llm_errors=int(getattr(judge, "llm_errors", 0) or 0) if isinstance(judge, LLMJudge) else 0,
+                    mock=bool(getattr(judge, "is_mock", False)) if isinstance(judge, LLMJudge) else False,
+                )
+            )
+
+        project_name = project.name if project else str(dataset.meta.get("project", ""))
+        return ScoreReport(
+            testset_id=dataset.testset_id,
+            project=project_name,
+            min_score=threshold,
+            labels=ground_truth,
+            scores=scores,
+            snapshot_date=str(dataset.meta.get("snapshot_date", "")),
+        )

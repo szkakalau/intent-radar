@@ -36,6 +36,9 @@ BLOCK_RATIO = 1.0  # 100% -> refuse to run
 # credits while the breaker still reported 0% used.
 SCRAPE_CREDIT_USD = 47.0 / 25000  # ~$0.00188 per credit
 
+# Bucket used when a caller counts a post without naming its source.
+UNNAMED_SOURCE = "(unnamed)"
+
 
 @dataclass
 class Usage:
@@ -213,28 +216,51 @@ class BudgetGuard:
 
 @dataclass
 class RunGates:
-    """Per-run limits. Only ``max_llm_calls`` is a hard stop."""
+    """Per-run limits. Only ``max_llm_calls`` is a hard stop.
+
+    ``max_posts_per_source`` is **per source**, exactly as its name promises: the
+    counter lives in :attr:`posts_per_source`, keyed by subreddit, so five
+    subreddits of forty posts never trip a cap of 200.
+
+    :attr:`posts_seen` is deliberately *not* a gate — it is a display total for
+    the operator. The ceiling on total spend of a run is the monthly USD budget
+    (:class:`BudgetGuard`), not this number.
+    """
 
     max_posts_per_source: int = 200
     max_llm_calls: int = 50
-    posts_seen: int = 0
+    posts_seen: int = 0  # grand total across sources — DISPLAY ONLY
     llm_calls: int = 0
+    posts_per_source: dict[str, int] = field(default_factory=dict)
 
-    def count_post(self) -> bool:
-        """Account for one collected post.
+    def count_post(self, source: str = "") -> bool:
+        """Account for one collected post from ``source``.
+
+        Args:
+            source: the subreddit (or provider) the post came from. Counting is
+                per source, so one noisy subreddit cannot starve the others.
 
         Returns:
-            ``False`` when the soft cap is reached (caller should stop
-            paginating); the run itself is not aborted.
+            ``False`` when *that source* has hit the soft cap (the caller should
+            stop pulling from it and move on); the run itself is not aborted.
         """
+        key = source or UNNAMED_SOURCE
         self.posts_seen += 1
-        if self.max_posts_per_source > 0 and self.posts_seen > self.max_posts_per_source:
+        seen = self.posts_per_source.get(key, 0) + 1
+        self.posts_per_source[key] = seen
+        if self.max_posts_per_source > 0 and seen > self.max_posts_per_source:
             log.warning(
-                "MAX_POSTS_PER_SOURCE=%d reached, stopping collection early",
+                "MAX_POSTS_PER_SOURCE=%d reached for %s — stopping this source, "
+                "the remaining subreddits continue",
                 self.max_posts_per_source,
+                key,
             )
             return False
         return True
+
+    def posts_for(self, source: str = "") -> int:
+        """How many posts have been counted for one source (including rejects)."""
+        return self.posts_per_source.get(source or UNNAMED_SOURCE, 0)
 
     def count_llm_call(self) -> None:
         """Account for one LLM call. Raises :class:`GateExceeded` past the limit."""
@@ -248,6 +274,16 @@ class RunGates:
         self.llm_calls += 1
 
     def summary(self) -> str:
-        """One-line human summary for the terminal."""
-        return f"posts {self.posts_seen}/{self.max_posts_per_source} · LLM {self.llm_calls}/{self.max_llm_calls}"
+        """One-line human summary for the terminal.
+
+        The post figure is a *grand total*, so it is labelled as such — printing
+        it as ``total / per-source-cap`` made 200 posts across five subreddits
+        look like an exhausted budget.
+        """
+        cap = self.max_posts_per_source if self.max_posts_per_source > 0 else "off"
+        sources = len(self.posts_per_source)
+        return (
+            f"posts {self.posts_seen} total (max/source {cap}, {sources} sources)"
+            f" · LLM {self.llm_calls}/{self.max_llm_calls}"
+        )
 
