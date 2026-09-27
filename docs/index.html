@@ -75,7 +75,7 @@
   how often it is wrong, with the error bars, so you can check the arithmetic yourself.</p>
   <div class="badges">
     <span class="badge">MIT</span>
-    <span class="badge">348 hand-labelled posts</span>
+    <span class="badge">348 labelled rows · 312 with a verdict</span>
     <span class="badge">reproducible offline, no key</span>
     <span class="badge">every figure carries its 95% CI</span>
   </div>
@@ -166,9 +166,11 @@ labeller wrote. Nothing is hidden behind a score.</p>
   gateway reports <code>provider: "Nvidia"</code>. Account creation on Nebius is unavailable
   to us in this region. A judge checking "runs on Nebius Token Factory" should count this
   submission as <strong>not meeting</strong> that clause.</li>
-  <li><strong>9 of the 91 judgements returned HTTP 503 on the first attempt</strong> ("upstream
-  temporarily overloaded") and were retried. Both recordings now hold every verdict with
-  zero unresolved — but the first pass was not clean.</li>
+  <li><strong>5 of the 42 judgements in the published einprag run returned HTTP 503 on the
+  first attempt</strong> ("upstream temporarily overloaded") and were retried. The recording
+  holds every verdict with zero unresolved — but the first pass was not clean. This count is
+  <em>not</em> reproducible from the repo: the manifests record calls, not retries, so it comes
+  from that one run's log and no test covers it.</li>
   <li><strong>One accounting gap we cannot explain.</strong> The Nemotron endpoint reports
   ~2,086 prompt tokens per judgement; DeepSeek reports ~406 for the same prompt. We are
   publishing both rather than quoting the cheaper one.</li>
@@ -180,12 +182,12 @@ cd intent-radar
 uv sync --extra dev
 
 # the offline reproduction — no API key, no endpoint, no network
-uv run intentradar eval score --testset einprag-2026-09-27 \
+uv run python -m intentradar eval score --testset einprag-2026-09-27 \
       --layers rule_v4,rule_v4+llm --min-score 3 \
       --replay data/replay/einprag-2026-09-27/rule_v4_llm
 
 # the same thing with the NVIDIA model
-uv run intentradar eval score --testset einprag-2026-09-27 \
+uv run python -m intentradar eval score --testset einprag-2026-09-27 \
       --layers rule_v4,rule_v4+llm --min-score 3 \
       --replay data/replay/nemotron-openrouter-2026-09-27/rule_v4_llm</pre>
 
