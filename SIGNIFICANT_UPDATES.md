@@ -5,6 +5,15 @@ submission period** of the Nebius × NVIDIA hackathon (2026-08-26 → 2026-10-30
 Required by the contest rules; updated weekly. Every entry is traceable to a
 commit range in this public repository.
 
+> **How to read the numbers in this file.** This is a **historical ledger**, not
+> a published claim. Figures recorded here are quoted as they were printed at
+> the time, and several predate the tool printing 95% Wilson intervals — so some
+> old rows state a percentage without counts or an interval, and they are left
+> that way deliberately: retro-fitting intervals onto a superseded run would be
+> inventing them. **Only the README carries citable figures**, and every figure
+> there is guarded by a test (`tests/test_docs_honesty.py`) that fails if a rate
+> appears without both its counts `(x/y)` and its interval on the same line.
+
 ---
 
 ## W1 — 2026-09-27 → 2026-10-03 · Foundation + environment
@@ -447,14 +456,14 @@ verified unchanged):
 | `1wq8u54` | stays not_actionable, **note rewritten** | "alternative algorithm" is outside the domain (criterion 1); the old note said "academic", which is not one of the three criteria |
 
 **One of these is currently a false positive, so this relabelling will move
-precision from 72.7% (8/11) to 80.0% (8/10) with the model unchanged.** That
-jump is a **relabelling effect, not a model improvement**, and must never be
-reported as v4.4.0 being better. It is recorded here so the next changelog
-cannot claim it by accident.
+precision from 72.7% (8/11), 95% CI [43%, 90%] to 80.0% (8/10), 95% CI [49%,
+94%] with the model unchanged.** That jump is a **relabelling effect, not a
+model improvement**, and must never be reported as v4.4.0 being better. It is
+recorded here so the next changelog cannot claim it by accident.
 
-(Corrected: an earlier version of this note said 88.9%, from a draft in which
-`1wq5s03` also moved to borderline. The team lead overruled that one, so only
-`1wqq5om` moves and the figure is 80.0%.)
+(Corrected: an earlier version of this note said 88.9% (8/9), from a draft in
+which `1wq5s03` also moved to borderline. The team lead overruled that one, so
+only `1wqq5om` moves and the figure is 8/10.)
 
 The reviewer also caught a private criterion of his own: "maker, not a
 customer" is not one of the three criteria — criterion (3) excludes
@@ -583,8 +592,8 @@ Result, `labels.csv sha256=2009ef74b2d1` (rev d, 10 positives), einprag:
 
 | | `v4.4.0+llm` | `v4.5.0+llm` |
 |---|---|---|
-| precision | 88.9% (8/9) | **100.0% (9/9)** |
-| recall | 80.0% (8/10) | **90.0% (9/10)** |
+| precision | 88.9% (8/9), 95% CI [57%, 98%] | **100.0% (9/9), 95% CI [70%, 100%]** |
+| recall | 80.0% (8/10), 95% CI [49%, 94%] | **90.0% (9/10), 95% CI [60%, 98%]** |
 | false positives | 1 | **0** |
 | false negatives | 2 | **1** |
 
@@ -602,10 +611,12 @@ old Status block advertised "precision 0%", which was a number from before
 `eval score` existed and no longer reproduced.
 
 The batch has since landed (`rev d`, 10 positives) and the README now carries
-**final, re-measured** figures: `rule_v3` 20.0% precision / **10.0% recall
-(1/10)** — note the recall moved from 12.5% to 10.0% because the denominator
-grew from 8 to 10 while the true positive count stayed at 1 — and the v4 funnel
-at **100.0% precision (9/9) / 90.0% recall (9/10)** under `v4.5.0+llm`. Every
+**final, re-measured** figures: `rule_v3` precision 20.0% (1/5), 95% CI [4%,
+62%] and recall 10.0% (1/10), 95% CI [2%, 40%] — note recall moved from 12.5%
+to 10.0% because the denominator grew from 8 to 10 while the true positive
+count stayed at 1 — and the v4 funnel at precision **100.0% (9/9), 95% CI
+[70%, 100%]** and recall **90.0% (9/10), 95% CI [60%, 98%]** under
+`v4.5.0+llm`. Every
 figure is tied to `label_version` + `labels.csv sha256`, both printed by the
 tool. Also disclosed: **the bootstrap denominator has not been reverse-audited
 yet** (57-row audit owing, blocked on reviewer quota), so all rates on the page

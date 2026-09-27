@@ -7,27 +7,33 @@ why any of them was chosen. IntentRadar does the opposite — every lead ships w
 machine-readable evidence, the hit rate is published, and a stranger can recompute
 our number on their own machine with one command.
 
-> Status: **W2 — semantic layer.** Two pipelines ship side by side and are scored
-> against the same ground truth: `rule_v3` (regex, frozen baseline) and
-> `rule_v4` → `rule_v4+llm` (a deliberately wide recall net plus an LLM gate).
-> `eval score` prints precision / recall / F1 for **both**, each with raw counts,
-> the sample size, and a 95% Wilson interval.
+> Status: **W2 — semantic layer.** Two pipelines are scored against the same
+> frozen ground truth: `rule_v3` (regex, frozen baseline) and `rule_v4` →
+> `rule_v4+llm` (a deliberately wide recall net plus an LLM gate).
 >
-> Read [Accuracy](#accuracy) before you trust any number here. The v4 pipeline
-> currently measures **100.0% precision (9/9)** and **90.0% recall (9/10)** on
-> einprag; the shipping `rule_v3` baseline measures **20.0% precision** and
-> **10.0% recall**. Every figure is tied to `label_version einprag-2026-09-27d`
-> and `labels.csv sha256=2009ef74b2d1`, both printed by the tool itself.
+> **Measured on einprag** — `label_version einprag-2026-09-27d`,
+> `labels.csv sha256=2009ef74b2d1`, 10 positives, model
+> **`deepseek-v4-flash` (NOT Nemotron)**:
 >
-> ⚠️ **Sample size: 10 positives.** At that size the 95% interval on recall is
-> `[60%, 98%]` — wide enough that one relabelled row still moves the number by
-> ten points. We print the interval beside every rate rather than the bare
-> percentage, because a number without one is not a measurement.
+> | layer | precision | recall |
+> |---|---|---|
+> | `rule_v4+llm` (`v4.5.0+llm`) | **100.0% (9/9)** · 95% CI [70%, 100%] | **90.0% (9/10)** · 95% CI [60%, 98%] |
+> | `rule_v3` (shipping default) | 20.0% (1/5) · 95% CI [4%, 62%] | 10.0% (1/10) · 95% CI [2%, 40%] |
 >
-> ⚠️ **Not Nemotron.** These figures come from `deepseek-v4-flash` over a local
-> dev proxy (see [Which model](#which-model-produced-the-stage-2-numbers)).
-> Re-measuring on Nebius/Nemotron is pending; nothing here may be quoted as a
-> Nemotron result.
+> **A rate is never printed alone.** Every percentage above carries its raw
+> counts and its 95% Wilson interval on the *same line* — because at n=10 a
+> bare "100%" reads as "no false positives" when the lower bound is 70%. A
+> number without an interval is not a measurement, and a lone percentage is
+> exactly what we criticise other tools for publishing. This is a **format rule
+> across the whole repository**, not a warning you can scroll past.
+>
+> ⚠️ **Not Nemotron.** `deepseek-v4-flash` over a local dev proxy (see
+> [Which model](#which-model-produced-the-stage-2-numbers)). Re-measuring on
+> Nebius/Nemotron is pending; nothing here may be quoted as a Nemotron result.
+>
+> ⚠️ **einprag only.** The einprag denominator is fully reverse-audited; the
+> bootstrap one is not yet (57 rows owing). Every rate on this page is an
+> einprag measurement.
 
 ---
 
@@ -72,7 +78,7 @@ uv run intentradar eval run --testset einprag-2026-09-27
 | `intentradar config check` | Validate `.env` + `config/watchlist.json` before anything runs; prints `backend=… · model=…` |
 | `intentradar llm hello` | Smoke-test the Nemotron client (works in mock mode without a key) |
 | `intentradar eval run` | Recompute the frozen hit set, offline |
-| `intentradar eval score` | Precision / recall / F1 for any `--layers` list against `labels.csv`, with counts + 95% CI |
+| `intentradar eval score` | Scores any `--layers` list against `labels.csv`; every rate printed with its counts and a Wilson interval |
 | `intentradar eval density` | Per-subreddit ground-truth density — **read this when positives < 10** |
 | `intentradar eval export` | Export hits to CSV / JSONL for third-party review |
 | `intentradar eval snapshot` | Freeze a new testset from a live collection run |
@@ -111,9 +117,10 @@ expected 6 hits: MATCH
 
 `eval run` is the reproducibility check: it reports the hit set **and** how much
 of it a human has actually adjudicated. 5 of the 6 hits carry a verdict and 4 of
-those are `not_actionable` — 80.0% noise, which is the same number `eval score`
-prints as `1 - precision`. The 6th hit sits on a `borderline` row and is counted
-as undecided rather than silently folded into either side.
+those are `not_actionable` — noise 80.0% (4/5), 95% CI [38%, 96%], which is
+`1 - precision` — 20.0% (1/5), 95% CI [4%, 62%]. The 6th hit sits on a
+`borderline` row and is counted as undecided rather than silently folded into
+either side.
 
 > **What `min_score` means.** The threshold (`5` for this snapshot) is locked in
 > `meta.json`, not passed on the command line — run `eval score` and it reads the
@@ -127,10 +134,10 @@ in a 3-day window across 5 subreddits; `rule_v3` flags 6 of them. Run the comman
 above on a fresh clone and you get the same 6 ids, the same scores, the same reasons.
 
 The second snapshot, `bootstrap-2026-09-27` (our own dog-fooding project), is
-137 posts → 12 hits → 8.8%.
+137 posts → 12 hits → 8.8% (12/137).
 
-> **We do not publish a precision/recall rate for bootstrap, and the 8.8% above
-> is a hit rate, not accuracy.** Its ground truth contains **2 positives**, so one
+> **Bootstrap publishes no accuracy figure, and the 8.8% (12/137) above is a hit
+> rate, not accuracy.** Its ground truth contains **2 positives**, so one
 > relabelled row is a 50-point swing — the number would be noise dressed as a
 > measurement. What *does* survive that sample size is the density:
 >
@@ -169,9 +176,10 @@ scores each layer against the human ground truth in
 **Every rate is printed with its raw counts, the sample size, and a 95% Wilson
 confidence interval.** This is deliberate: einprag has **10 positive examples**,
 so one relabelled row moves recall by ten points. `rule_v3`'s precision is
-`20.0%` with a 95% CI of `[4%, 62%]` — which is the honest way of saying "on
-this sample you have learned almost nothing". We publish the error bar rather
-than the bare percentage because a number without one is not a measurement.
+`20.0% (1/5)` with a 95% CI of `[4%, 62%]` — which is the honest way of saying
+"on this sample you have learned almost nothing". We publish the error bar
+rather than the bare percentage because a number without one is not a
+measurement.
 
 **Stage 1 — the shipping default, `rule_v3`:**
 
@@ -234,14 +242,16 @@ This is the two-stage funnel, and it is the core of the design:
 
 | stage | candidates | precision | recall |
 |---|---|---|---|
-| `rule_v4` — wide net | 42 | 26.3% | **100%** |
-| `rule_v4+llm` — semantic gate | 11 | **100.0%** | 90.0% |
+| `rule_v4` — wide net | 42 | 26.3% (10/38) · 95% CI [15%, 42%] | **100% (10/10)** · 95% CI [72%, 100%] |
+| `rule_v4+llm` — semantic gate | 11 | **100.0% (9/9)** · 95% CI [70%, 100%] | 90.0% (9/10) · 95% CI [60%, 98%] |
 
 The rule layer is a **net, not a decider**: it is deliberately over-inclusive
-and costs nothing, so it can afford 100% recall at 26.3% precision. The LLM
-gate then removes 31 of the 42 candidates and **zero** of its 11 survivors are
-marked `not_actionable`. A single-stage scorer has to trade precision against
-recall; splitting the job in two means only the cheap stage has to be greedy.
+and costs nothing, so it can afford recall 100% (10/10), 95% CI [72%, 100%],
+at precision 26.3% (10/38), 95% CI [15%, 42%]. The LLM gate removes 31 of the
+42 candidates, and **zero** of the 9 survivors a human has ruled on are marked
+`not_actionable` — 0/9.
+A single-stage scorer has to trade precision against recall; splitting the job
+in two means only the cheap stage has to be greedy.
 
 > **Why `--min-score 3` appears here and nowhere else.** It is not a tuning
 > knob: 3 is `rule_v4`'s documented candidate bar (`CANDIDATE_MIN_SCORE`), the
@@ -338,8 +348,24 @@ Two consequences worth reading twice:
    direction of error that looks good in a README.
 
 Wilson, not the normal approximation: on samples this small the textbook
-interval returns bounds outside `[0, 1]`, which is how people end up publishing
-"precision 100% ± 40%".
+interval returns bounds outside `[0, 1]`, which is how a tool ends up claiming
+an interval wider than the range the quantity can possibly take.
+
+**The format rule (applies to every document in this repo, not just this
+page): a rate is never printed alone.** Any precision / recall / F1 / noise
+figure must carry its raw counts `(x/y)` and its 95% CI **on the same line**:
+
+```
+precision 100.0% (9/9), 95% CI [70%, 100%]     ✅
+precision 100.0%                                ❌ — reads as "no false
+                                                     positives"; the lower
+                                                     bound is 70%
+```
+
+This is a format rule rather than a warning because warnings get scrolled past
+and formatting does not. A test greps the README for rate mentions and fails
+when one appears without both its counts and its interval, so the discipline
+cannot decay quietly.
 
 ### How the ground truth is handled
 
@@ -383,9 +409,9 @@ false positive gets audited individually and written up in
 [`SIGNIFICANT_UPDATES.md`](SIGNIFICANT_UPDATES.md) — including the ones that
 were our fault. Three from this project, all recorded there:
 
-- **A trade-off that was actually a bug.** Judge version `v4.2.0` dropped recall
-  from 100% to 62.5% because the prompt required a **specific product name**
-  while the written standard only required the **category** to be explicit. We
+- **A trade-off that was actually a bug.** Judge version `v4.2.0` cut recall
+  from 8/8 to 5/8 because the prompt required a **specific product name** while
+  the written standard only required the **category** to be explicit. We
   reported it as a precision/recall trade-off. It was a bug — and identifying a
   bug as a trade-off is the more dangerous error, because a trade-off gets
   accepted and a bug gets fixed. Root cause: the prompt was written from a
@@ -398,14 +424,17 @@ were our fault. Three from this project, all recorded there:
   it?". The standard's own precedent list calls that post a confirmed
   actionable. Rather than accept it as a precision/recall trade, rule (b)'s test
   sentence was replaced outright — from *"is the author talking to people"* to
-  *"is the author making an adoption decision for themselves"*. That took
-  `v4.5.0` from 88.9%/80% to **100% precision / 90% recall** and removed the
-  last false positive.
+  *"is the author making an adoption decision for themselves"*. That moved
+  `v4.4.0` → `v4.5.0` from precision 88.9% (8/9), 95% CI [57%, 98%] and recall
+  80.0% (8/10), 95% CI [49%, 94%] to **precision 100.0% (9/9), 95% CI [70%,
+  100%]** and **recall 90.0% (9/10), 95% CI [60%, 98%]** — and removed the last
+  false positive.
 - **A figure corrected after it was written.** A pending relabelling was first
-  reported as moving precision to 88.9%, on the assumption two rows would move.
-  The team lead overruled one of them (`1wq5s03` stays `not_actionable`), so it
-  was 80.0%, not 88.9%. Both the correction and the overrule are recorded; the
-  number was not quietly edited.
+  reported as taking precision to 8 scored hits with 8 true positives, on the
+  assumption two rows would move. The team lead overruled one of them
+  (`1wq5s03` stays `not_actionable`), so the projection was 8/10, not 8/9.
+  Both the correction and the overrule are recorded; the number was not quietly
+  edited.
 
 **The one remaining miss is `1woxhua`**, and we are leaving it in. The model
 reads it as musing about curriculum design; the reviewer says it names courses,
