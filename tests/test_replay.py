@@ -313,8 +313,20 @@ def test_metric_rows_distinguish_a_rate_from_its_interval() -> None:
 # keep the loudest claim false for the table a stranger sees first.
 PUBLISHED_TABLES = (
     # (recording dir, layers, min_score, a string that identifies its block)
-    ("rule_v3_llm", ("rule_v3", "rule_v3+llm"), None, "rule_v3+llm (v3.1.0+llm)"),
-    ("rule_v4_llm", ("rule_v4", "rule_v4+llm"), 3, "rule_v4+llm (v4.5.0+llm)"),
+    #
+    # The dir is relative to data/replay/ rather than to a single testset: the
+    # third recording is the *same* testset judged by a second model, and it
+    # lives beside the first one instead of inside it. Folding it under the
+    # testset directory would make "which model froze this" a matter of
+    # convention rather than something the path says out loud.
+    ("einprag-2026-09-27/rule_v3_llm", ("rule_v3", "rule_v3+llm"), None, "rule_v3+llm (v3.1.0+llm)"),
+    ("einprag-2026-09-27/rule_v4_llm", ("rule_v4", "rule_v4+llm"), 3, "rule_v4+llm (v4.5.0+llm)"),
+    (
+        "nemotron-openrouter-2026-09-27/rule_v4_llm",
+        ("rule_v4", "rule_v4+llm"),
+        3,
+        "nvidia/nemotron-3-super-120b-a12b:free",
+    ),
 )
 
 
@@ -343,7 +355,7 @@ def test_every_published_table_matches_its_committed_replay(
     could not reproduce. Comparing the replayed output to the published block
     line by line makes that class of drift impossible to ship quietly.
     """
-    recording = REPO_ROOT / "data" / "replay" / DATASET_ID / directory
+    recording = REPO_ROOT / "data" / "replay" / directory
     if not recording.exists():  # pragma: no cover - recordings ship with the repo
         pytest.skip(f"no committed replay recording at {recording}")
 

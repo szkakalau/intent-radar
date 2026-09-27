@@ -336,6 +336,92 @@ tuned away: rewriting the prompt to catch one post is fitting the rule to the
 example, and it would not generalise. See
 [Failure cases](#failure-cases-are-published).
 
+### Two models, one harness
+
+We developed against `deepseek-v4-flash` because we could not get a Nebius
+account. The hackathon asks for an NVIDIA open model, so we re-ran the **same
+frozen testset, the same prompt and the same code path** against
+`nvidia/nemotron-3-super-120b-a12b:free`, and published both rather than
+replacing the first row:
+
+```
+$ intentradar eval score --testset einprag-2026-09-27 \
+      --layers rule_v4,rule_v4+llm --min-score 3 \
+      --replay data/replay/nemotron-openrouter-2026-09-27/rule_v4_llm
+
+REPLAYED — frozen model responses from 2026-09-27T09:55:58Z, model=nvidia/nemotron-3-super-120b-a12b:free. Not a live run.
+testset : einprag-2026-09-27   (frozen 2026-09-27)
+truth   : einprag-2026-09-27d  labels.csv sha256=2009ef74b2d1
+project : Einprag   min_score=3
+labels  : 211 rows · 184 labeled (10 actionable / 174 not) · 0 unlabeled · 27 borderline
+──────────────────────────────────────────────────────────────
+metric                      rule_v4 (v4.0.0)  rule_v4+llm (v4.5.0+llm)
+predicted                                 42                        19
+true positive                             10                        10
+false positive                            28                         6
+false negative                             0                         0
+precision                     26.3%  (10/38)            62.5%  (10/16)
+precision 95% CI                  [15%, 42%]                [39%, 82%]
+recall                       100.0%  (10/10)           100.0%  (10/10)
+recall 95% CI                    [72%, 100%]               [72%, 100%]
+F1                                     41.7%                     76.9%
+noise rate                    73.7%  (28/38)             37.5%  (6/16)
+unverified hits                            4                         3
+positives (n)                             10                        10
+──────────────────────────────────────────────────────────────
+llm: 0 calls · 0 errors · backend=n/a
+llm: 42 calls · 0 errors · backend=REPLAYED from data/replay/nemotron-openrouter-2026-09-27/rule_v4_llm · model=nvidia/nemotron-3-super-120b-a12b:free
+note: 27 of 211 rows carry no usable verdict (0 unlabeled + 27 borderline); they are excluded from every ratio above, not counted as 0.
+```
+
+| model | precision | recall |
+|---|---|---|
+| `deepseek-v4-flash` | 100.0% (9/9) · 95% CI [70%, 100%] | 90.0% (9/10) · 95% CI [60%, 98%] |
+| `nvidia/nemotron-3-super-120b-a12b:free` | 62.5% (10/16) · 95% CI [39%, 82%] | 100.0% (10/10) · 95% CI [72%, 100%] |
+
+**The Nemotron hit set is a strict superset of DeepSeek's.** Every one of the 11
+posts DeepSeek called actionable, Nemotron also called actionable, and it added
+8 more. **Nothing was reversed.** Comparing the 42 recorded verdicts one by one,
+there is no post the stricter model accepted and the looser one rejected.
+
+Those 8 are the whole story, and they split cleanly:
+
+* **1** of them is `1woxhua` — the one true positive DeepSeek missed, described
+  above. That is the *entire* reason recall moves from 90.0% (9/10), 95% CI
+  [60%, 98%], to 100.0% (10/10), 95% CI [72%, 100%].
+* **6** of them are labelled `not_actionable` — confirmed false positives. That
+  is the *entire* reason precision moves from 100.0% (9/9), 95% CI [70%, 100%],
+  to 62.5% (10/16), 95% CI [39%, 82%].
+* **1** — `1wqq5om` — is `borderline`: a human could not rule it either way, so
+  it is excluded from every ratio rather than counted as a miss.
+
+So the models did not disagree about *which* posts are actionable. They
+disagreed about **how far to reach**: Nemotron's extra reach bought back exactly
+one missed customer and cost exactly six wasted ones. Which of those you prefer
+is not a model question — it is a question about whether a wasted reply or a
+missed customer is more expensive, and we are not going to pretend we know the
+answer for your business.
+
+We are not going to pick the flattering row. **The model this competition asks
+us to use is the worse one on precision**, and it is printed directly beneath
+the number that looks good.
+
+> **Where it ran, stated exactly.** Nemotron was served by OpenRouter, whose
+> gateway reported `provider: "Nvidia"` and `cost: 0`. It did **not** run on
+> Nebius Token Factory: account creation is unavailable to us in this region
+> (Nebius support, 2026-09-27: *"adding new countries takes significant amount
+> of time"*), and we would rather say so than imply a platform we never reached.
+> A judge checking *"runs on Nebius Token Factory or AI Cloud"* should count this
+> submission as **not meeting** that clause — we meet *"uses at least one NVIDIA
+> open source model"*, and nothing more.
+
+> **One caveat on the Nemotron run.** 5 of the 42 calls returned HTTP 503
+> (*"Upstream error from Nvidia: Service temporarily overloaded"*) on the first
+> attempt and were retried by the client's existing backoff. The recording
+> contains all 42 verdicts with 0 unresolved, so no post was silently scored 0 —
+> but the first pass was not clean, and we are not going to describe it as though
+> it was.
+
 ### Which model produced the stage-2 numbers
 
 They come from **`deepseek-v4-flash`, reached through a local Anthropic-shaped
@@ -343,8 +429,10 @@ dev proxy** (`http://127.0.0.1:8787/v1/messages`). That is a development
 verification channel, **not** the hackathon's target model, and nothing here may
 be quoted as a Nebius/Nemotron result. Every run prints `backend=… · model=…`
 and `config check` prints the resolved endpoint, so a figure cannot be
-mis-attributed by accident. Re-measuring on Nebius is pending. (A re-run served
-from the response cache reports `0 calls`; the run above made 42.)
+mis-attributed by accident. The re-measurement against an NVIDIA open model is
+shown in [Two models, one harness](#two-models-one-harness) — note that it did
+**not** run on Nebius. (A re-run served from the response cache reports `0 calls`;
+the run above made 42.)
 
 **How that model name was checked — and why we do not let a model name itself.**
 A liveness probe through the same proxy replied `Hello, I'm ChatGPT.` while the

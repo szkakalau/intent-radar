@@ -7,6 +7,9 @@ retry/caching/accounting code path for both mock and real traffic.
 Price table: ``MODEL_PRICING`` holds the published $/1M-token rates. Unknown
 models fall back to ``PRICING_FALLBACK_PER_1M`` — a *conservative* estimate,
 never 0.0, because a zero price would make the monthly gate silently useless.
+A model that is genuinely free is listed explicitly at 0.0 (see
+``MODEL_PRICING``); the fallback is reserved for models whose price we do not
+know, and guessing "free" for those would be the wrong direction to err in.
 """
 
 from __future__ import annotations
@@ -29,6 +32,12 @@ log = logging.getLogger(__name__)
 MODEL_PRICING: dict[str, dict[str, float]] = {
     "nvidia/nemotron-3-ultra-550b-a55b": {"in": 1.00, "out": 3.00},
     "nvidia/nemotron-3-super-120b-a12b": {"in": 0.30, "out": 0.90},
+    # Genuinely free tier: OpenRouter bills $0 for the `:free` variant. 0.0 here
+    # is the *true* price, not a gap in the table — the cost gate simply has
+    # nothing to stop on this model, and the call-count gate
+    # (`INTENTRADAR_MAX_LLM_CALLS`) is what bounds a runaway. The fallback below
+    # stays non-zero so an *unknown* model can never inherit a free pass.
+    "nvidia/nemotron-3-super-120b-a12b:free": {"in": 0.0, "out": 0.0},
 }
 # Conservative stand-in used until the real rate for a model is known.
 PRICING_FALLBACK_PER_1M: dict[str, float] = {"in": 0.30, "out": 1.20}
