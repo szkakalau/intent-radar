@@ -369,6 +369,45 @@ the ground truth treats a first-person buy-vs-build question as satisfying
 condition (2) — in which case the standard needs a sentence saying so — or the
 model's reading stands. Not an engineering call.
 
+### Ground-truth fingerprinting — numbers now name their own revision
+
+`labels.csv` was edited **three times while an evaluation was running**, and one
+run produced a number (6 actionable / 30 borderline) describing a state that no
+longer existed. A measurement is worthless if the thing being measured moved
+mid-flight, so:
+
+- `eval.py` gained `label_fingerprint()` → `(label_version, sha256(labels.csv))`.
+- `EvalScorer.score()` fingerprints **before and after** and raises
+  `ConfigError` (exit 2) if they differ. **Hard fail, not a warning** — a
+  warning is ignored the moment anyone batch-runs this.
+- Every report now prints a `truth   : <label_version>  labels.csv sha256=…`
+  line, so a published number can be traced to the exact ground truth.
+- A test asserts both committed testsets declare a `label_version`.
+
+### False positives are audited too, not just false negatives
+
+We reviewed every false negative in detail and no false positive at all, which
+biases precision upward: a label that is wrong in the *model's favour* was
+never being questioned. The 3 einprag FPs under `v4.3.0+llm`, with the model's
+reason and the reviewer's note:
+
+| id | model's reason | reviewer's note | read |
+|---|---|---|---|
+| `1wq5s03` | *"Is there a low-stakes way to practice speaking outside of an app?"* — a named category, actively sought | "anxiety about Mandarin tones; asks for reassurance, not a product" | genuinely arguable both ways |
+| `1wq8u54` | *"is there an alternative algorithm to optimize my repetitions…"* | "technical discussion on whether FSRS is optimal; academic, no purchase intent" | leans model error — academic is excluded |
+| `1wqq5om` | *"is there any apps or tools that people use to remove distractions…"* | "built their own distraction-blocking browser and is surveying; maker, not a customer" | **collides with the proposed buy-vs-build rule** — see below |
+
+Sent to the reviewer for per-row adjudication.
+
+**Cross-check on the proposed buy-vs-build rule.** It holds up as a general
+rule — an explicit tool-selection or buy-vs-build question distinguishes "how
+do *you* do it" (research) from "should I buy or build" (a decision). But it
+collides with `1wqq5om`, which contains an explicit selection question
+("any apps or tools that people use…") and is labelled `not_actionable` with
+"maker, not a customer". So adopting the rule will either flip that label or
+add a false positive. **Flagged before the rule is written into the standard**,
+not after.
+
 ### Known limitations, stated honestly
 
 - **The headline numbers are still not Nemotron's.** They come from a local

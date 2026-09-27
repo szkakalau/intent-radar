@@ -9,6 +9,7 @@ it.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import logging
 from collections.abc import Iterable, Sequence
@@ -565,6 +566,8 @@ class ScoreReport:
     labels: LabelSet
     scores: list[LayerScore]
     snapshot_date: str = ""
+    label_version: str = ""
+    label_sha256: str = ""
 
     def render(self) -> str:
         """Terminal block: both layers side by side, nothing hidden."""
@@ -572,6 +575,10 @@ class ScoreReport:
         lines = [
             f"testset : {self.testset_id}"
             + (f"   (frozen {self.snapshot_date})" if self.snapshot_date else ""),
+            # A published number is meaningless without naming the ground truth
+            # it was measured against — the labels move between revisions.
+            f"truth   : {self.label_version or '(unversioned)'}  "
+            f"labels.csv sha256={self.label_sha256[:12] if self.label_sha256 else '-'}",
             f"project : {self.project}   min_score={self.min_score}",
             f"labels  : {self.labels.rows} rows · {self.labels.labeled} labeled "
             f"({self.labels.positives} actionable / {self.labels.negatives} not) · "
@@ -645,6 +652,25 @@ class ScoreReport:
         return "\n".join(lines)
 
 
+def label_fingerprint(base_dir: Path) -> tuple[str, str]:
+    """Return ``(label_version, sha256 of labels.csv)`` for a testset dir.
+
+    Scoring a dataset whose ground truth is being edited underneath it produces
+    numbers that describe a state nobody can reproduce. We therefore fingerprint
+    the labels before and after and refuse to publish if they moved.
+    """
+    labels = base_dir / "labels.csv"
+    digest = hashlib.sha256(labels.read_bytes()).hexdigest() if labels.exists() else "(missing)"
+    meta = base_dir / "meta.json"
+    version = "(unversioned)"
+    if meta.exists():
+        try:
+            version = str(json.loads(meta.read_text(encoding="utf-8")).get("label_version") or "(unversioned)")
+        except (json.JSONDecodeError, OSError):
+            version = "(unreadable)"
+    return version, digest
+
+
 class EvalScorer:
     """Replays a frozen dataset through several judges and scores them."""
 
@@ -665,6 +691,7 @@ class EvalScorer:
         """Compute precision / recall / F1 per layer against ``labels.csv``."""
         from intentradar.judge.llm import LLMJudge
 
+        before = label_fingerprint(dataset.base_dir)
         threshold = int(min_score if min_score else dataset.meta.get("min_score") or 5)
         posts = dataset.in_window()
         post_ids = [p.id for p in posts if p.id]
@@ -721,6 +748,18 @@ class EvalScorer:
                 )
             )
 
+        # Hard fail, not a warning: a silently moved ground truth is worse than
+        # no number at all, and a warning is ignored the moment anyone batch-runs.
+        after = label_fingerprint(dataset.base_dir)
+        if after != before:
+            raise ConfigError(
+                f"ground truth changed while scoring {dataset.testset_id}: "
+                f"label_version {before[0]} -> {after[0]}, "
+                f"labels.csv sha256 {before[1][:12]} -> {after[1][:12]}. "
+                "These numbers would describe a state nobody can reproduce. "
+                "Re-run once the labels are committed."
+            )
+
         project_name = project.name if project else str(dataset.meta.get("project", ""))
         return ScoreReport(
             testset_id=dataset.testset_id,
@@ -729,4 +768,6 @@ class EvalScorer:
             labels=ground_truth,
             scores=scores,
             snapshot_date=str(dataset.meta.get("snapshot_date", "")),
+            label_version=after[0],
+            label_sha256=after[1],
         )

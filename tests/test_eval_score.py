@@ -16,6 +16,7 @@ from intentradar.eval import (
     EvalDataset,
     EvalScorer,
     LabelSet,
+    label_fingerprint,
 )
 from intentradar.judge import get_judge
 from intentradar.judge.llm import LLMJudge
@@ -327,3 +328,50 @@ def test_unknown_testset_still_fails_cleanly(tmp_data_dir: Path) -> None:
     from intentradar.cli import main
 
     assert main(["eval", "score", "--testset", "does-not-exist"]) == 2
+
+
+def test_report_names_the_label_revision_it_was_measured_against(
+    dataset: EvalDataset, project: ProjectConfig
+) -> None:
+    """A number without a ground-truth revision cannot be reproduced or trusted."""
+    report = EvalScorer([get_judge(LAYER_RULE_V3)]).score(dataset, project=project)
+    rendered = report.render()
+    assert "truth   :" in rendered
+    assert len(report.label_sha256) == 64
+
+
+def test_committed_testsets_declare_a_label_version() -> None:
+    """A published number must be traceable to a named ground-truth revision."""
+    for ts_id in ("einprag-2026-09-27", "bootstrap-2026-09-27"):
+        version, digest = label_fingerprint(REPO_ROOT / "data" / "testset" / ts_id)
+        assert version not in ("(unversioned)", "(unreadable)"), ts_id
+        assert len(digest) == 64, ts_id
+
+
+def test_labels_moving_mid_run_is_a_hard_error(
+    dataset: EvalDataset, project: ProjectConfig
+) -> None:
+    """Ground truth edited while scoring must fail loudly, not warn quietly.
+
+    A warning is ignored the moment anyone batch-runs this; a silent change
+    produces numbers describing a state nobody can reproduce.
+    """
+    import intentradar.eval as eval_mod
+
+    real = eval_mod.label_fingerprint
+    base_dir = dataset.base_dir
+
+    def moving(dirpath):  # type: ignore[no-untyped-def]
+        # First call (before) returns the truth, second (after) a different file.
+        if not hasattr(moving, "seen"):
+            moving.seen = True
+            return ("rev-a", "0" * 64)
+        return ("rev-b", "1" * 64)
+
+    eval_mod.label_fingerprint = moving  # type: ignore[assignment]
+    try:
+        with pytest.raises(ConfigError, match="ground truth changed"):
+            EvalScorer([get_judge(LAYER_RULE_V3)]).score(dataset, project=project)
+    finally:
+        eval_mod.label_fingerprint = real  # type: ignore[assignment]
+    assert base_dir.exists()
